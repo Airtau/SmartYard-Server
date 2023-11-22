@@ -17,6 +17,18 @@ class sputnik extends domophone
     protected array $codesToBeAdded = [];
     protected array $flatsToBeAdded = [];
 
+    /**
+     * @var array|null $flats An array that holds flats information,
+     * which may be null if not loaded.
+     */
+    protected ?array $flats = null;
+
+    /**
+     * @var array|null $personalCodes An array that holds personal access codes information,
+     * which may be null if not loaded.
+     */
+    protected ?array $personalCodes = null;
+
     protected array $cmsModelType = [
         'BK-100' => 'VIZIT',
         'COM-25U' => 'METACOM',
@@ -606,6 +618,64 @@ class sputnik extends domophone
     protected function getUnlocked(): bool
     {
         return false;
+    }
+
+    /**
+     * Load and cache flats from the API if they haven't been loaded already.
+     *
+     * @return void
+     */
+    protected function loadFlats()
+    {
+        if ($this->flats !== null) {
+            return;
+        }
+
+        $intercom = $this->apiCall('query', 'intercom', ['uuid' => $this->uuid], [
+            'configShadow' => [
+                'flats' => [
+                    'firstFlat',
+                    'lastFlat',
+                    'flats(limit: 9999)' => [
+                        'edges' => [
+                            'node' => [
+                                'num',                  // Flat number
+                                'sipAccountContact',    // SIP number
+                                'analogSettings' => [
+                                    'alias',            // Analog number
+                                    'blocked',          // CMS blocked
+                                    'thresholdCall',    // Handset up level
+                                    'thresholdDoor',    // Door opening level
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]);
+
+        $firstFlat = $intercom['data']['intercom']['configShadow']['flats']['firstFlat'];
+        $lastFlat = $intercom['data']['intercom']['configShadow']['flats']['lastFlat'];
+
+        $rawFlats = $intercom['data']['intercom']['configShadow']['flats']['flats']['edges'];
+
+        $flats = array_map(function ($item) {
+            return $item['node'];
+        }, $rawFlats);
+
+        $this->flats = array_column($flats, null, 'num');
+    }
+
+    /**
+     * Load and cache personal codes from the API if they haven't been loaded already.
+     *
+     * @return void
+     */
+    protected function loadPersonalCodes()
+    {
+        if ($this->personalCodes === null) {
+            $codes = null;
+        }
     }
 
     protected function updateIntercomFlats($flats)
