@@ -17,9 +17,6 @@ class sputnik extends domophone
     protected array $codesToBeAdded = [];
     protected array $flatsToBeAdded = [];
 
-    protected ?int $nowFirstFlat = null;
-    protected ?int $nowLastFlat = null;
-
     protected array $cmsModelType = [
         'BK-100' => 'VIZIT',
         'COM-25U' => 'METACOM',
@@ -213,12 +210,6 @@ class sputnik extends domophone
         $this->apiCall('mutation', $lockNumber ? 'openSecondDoor' : 'openDoor', ['intercomID' => $this->uuid]);
     }
 
-    public function prepare()
-    {
-        parent::prepare();
-        $this->clearDefaultCMSRange();
-    }
-
     public function setAudioLevels(array $levels)
     {
         if (count($levels) === 4) {
@@ -353,16 +344,6 @@ class sputnik extends domophone
         $dbConfig['ntp']['timezone'] = $this->getOffsetByTimezone($dbConfig['ntp']['timezone']);
 
         return $dbConfig;
-    }
-
-    protected function clearDefaultCMSRange()
-    {
-        $this->apiCall('mutation', 'updateIntercomFlatConfig', [
-            'intercomID' => $this->uuid,
-            'firstFlat' => 1,
-            'lastFlat' => 1,
-            'flatOffset' => 0,
-        ]);
     }
 
     protected function createDigitalKeys($digitalKeys)
@@ -556,14 +537,16 @@ class sputnik extends domophone
         $rawMatrix = $intercom['data']['intercom']['configShadow']['flats']['flats']['edges'];
 
         foreach ($rawMatrix as $cell) {
-            $apartmentNumber = $cell['node']['num'];
+            $alias = $cell['node']['analogSettings']['alias'];
 
-            if ($apartmentNumber === 9999) {
+            // No analog line forwarding, skip
+            if (!$alias) {
                 continue;
             }
 
-            $alias = $cell['node']['analogSettings']['alias'];
+            $apartmentNumber = $cell['node']['num'];
             [$cms, $dozen, $unit] = str_split(str_pad($alias, 3, '0', STR_PAD_LEFT));
+
             $matrix[$cms . $dozen . $unit] = [
                 'hundreds' => $cms,
                 'tens' => $dozen,
@@ -623,17 +606,6 @@ class sputnik extends domophone
     protected function getUnlocked(): bool
     {
         return false;
-    }
-
-    protected function updateApartmentRange(int $apartment)
-    {
-        if (!$this->nowFirstFlat || $apartment < $this->nowFirstFlat) {
-            $this->nowFirstFlat = $apartment;
-        }
-
-        if (!$this->nowLastFlat || $apartment > $this->nowLastFlat) {
-            $this->nowLastFlat = $apartment;
-        }
     }
 
     protected function updateIntercomFlats($flats)
