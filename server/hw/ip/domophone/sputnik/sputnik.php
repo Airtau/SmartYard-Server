@@ -17,6 +17,9 @@ class sputnik extends domophone
     protected array $codesToBeAdded = [];
     protected array $flatsToBeAdded = [];
 
+    protected ?int $nowFirstFlat = null;
+    protected ?int $nowLastFlat = null;
+
     protected array $cmsModelType = [
         'BK-100' => 'VIZIT',
         'COM-25U' => 'METACOM',
@@ -109,7 +112,6 @@ class sputnik extends domophone
 
     public function configureGate(array $links = [])
     {
-        // TODO: ???
 //        $this->apiCall('mutation', 'removeAllClusterPrefix', ['uuid' => $this->uuid]);
 //
 //        $clusterPrefixes = array_map(function ($link) {
@@ -257,7 +259,8 @@ class sputnik extends domophone
 
     public function setConciergeNumber(int $sipNumber)
     {
-        $this->configureApartment($sipNumber, 0, [$sipNumber], false);
+        // Empty implementation
+        // $this->configureApartment($sipNumber, 0, [$sipNumber], false);
     }
 
     public function setDtmfCodes(string $code1 = '1', string $code2 = '2', string $code3 = '3', string $codeCms = '1')
@@ -275,7 +278,7 @@ class sputnik extends domophone
 
     public function setPublicCode(int $code = 0)
     {
-        // TODO: Implement setPublicCode() method.
+        // Empty implementation
     }
 
     public function setSosNumber(int $sipNumber)
@@ -430,12 +433,13 @@ class sputnik extends domophone
                 'analogSettings' => $analogSettings,
             ] = $rawFlat['node'];
 
-            if ($apartment === 9999 || !$sipNumber) {
+            // Generated automatically due to range, not required
+            if (!$sipNumber) {
                 continue;
             }
 
             [
-                'blocked' => $blocked,
+                'blocked' => $cmsBlocked,
                 'thresholdCall' => $thresholdCall,
                 'thresholdDoor' => $thresholdDoor,
             ] = $analogSettings;
@@ -444,7 +448,7 @@ class sputnik extends domophone
                 'apartment' => $apartment,
                 'code' => $codes[$apartment] ?? 0,
                 'sipNumbers' => [$sipNumber],
-                'cmsEnabled' => !$blocked,
+                'cmsEnabled' => !$cmsBlocked,
                 'cmsLevels' => [$thresholdCall, $thresholdDoor]
             ];
         }
@@ -527,7 +531,6 @@ class sputnik extends domophone
 
     protected function getGateConfig(): array
     {
-        // TODO: ???
         return [];
     }
 
@@ -622,10 +625,15 @@ class sputnik extends domophone
         return false;
     }
 
-    protected function getWebhookUUIDs(): array
+    protected function updateApartmentRange(int $apartment)
     {
-        $webhooks = $this->apiCall('query', 'webhooks', [], ['uuid']);
-        return array_column($webhooks['data']['webhooks'], 'uuid');
+        if (!$this->nowFirstFlat || $apartment < $this->nowFirstFlat) {
+            $this->nowFirstFlat = $apartment;
+        }
+
+        if (!$this->nowLastFlat || $apartment > $this->nowLastFlat) {
+            $this->nowLastFlat = $apartment;
+        }
     }
 
     protected function updateIntercomFlats($flats)
