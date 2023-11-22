@@ -140,6 +140,8 @@ class sputnik extends domophone
 
     public function configureMatrix(array $matrix)
     {
+        $this->loadFlats();
+
         foreach ($matrix as $cell) {
             [
                 'hundreds' => $hundreds,
@@ -148,14 +150,7 @@ class sputnik extends domophone
                 'apartment' => $apartment
             ] = $cell;
 
-            $this->matrixToBeAdded[] = [
-                'flatNum' => $apartment,
-                'parameters' => [
-                    'analogSettings' => [
-                        'alias' => intval($hundreds . $tens . $units),
-                    ],
-                ],
-            ];
+            $this->flats[$apartment]['analogSettings']['alias'] = intval($hundreds . $tens . $units);
         }
     }
 
@@ -325,20 +320,14 @@ class sputnik extends domophone
 
     public function syncData()
     {
+        $this->updateFlats();
+
         if ($this->rfidKeysToBeDeleted) {
             $this->deleteIntercomKeys($this->rfidKeysToBeDeleted);
         }
 
-        if ($this->matrixToBeAdded) {
-            $this->updateIntercomFlats($this->matrixToBeAdded);
-        }
-
         if ($this->codesToBeAdded) {
             $this->createDigitalKeys($this->codesToBeAdded);
-        }
-
-        if ($this->flatsToBeAdded) {
-            $this->updateIntercomFlats($this->flatsToBeAdded);
         }
     }
 
@@ -678,11 +667,13 @@ class sputnik extends domophone
         }
     }
 
-    protected function updateIntercomFlats($flats)
+    protected function updateFlats()
     {
-        $this->apiCall('mutation', 'updateIntercomFlats', [
-            'intercomID' => $this->uuid,
-            'flats' => $flats,
-        ]);
+        if ($this->flats !== null) {
+            $this->apiCall('mutation', 'updateIntercomFlats', [
+                'intercomID' => $this->uuid,
+                'flats' => $this->flats,
+            ]);
+        }
     }
 }
