@@ -75,7 +75,7 @@ class sputnik extends domophone
         $this->loadFlats();
         $this->loadPersonalCodes();
 
-        $this->flats[$apartment]['sipAccountContact'] = $sipNumbers[0] ?? null;
+        $this->flats[$apartment]['sipAccountContact'] = "$sipNumbers[0]" ?? null;
         $this->flats[$apartment]['analogSettings']['blocked'] = !$cmsEnabled;
         $this->flats[$apartment]['analogSettings']['thresholdCall'] = $cmsLevels[0] ?? 9.99;
         $this->flats[$apartment]['analogSettings']['thresholdDoor'] = $cmsLevels[1] ?? 9.99;
@@ -641,12 +641,34 @@ class sputnik extends domophone
 
     protected function uploadFlats()
     {
-        if ($this->flats !== null) {
-            $this->apiCall('mutation', 'updateIntercomFlats', [
-                'intercomID' => $this->uuid,
-                'flats' => $this->flats,
-            ]);
+        if ($this->flats === null) {
+            return;
         }
+
+        $flats = [];
+
+        foreach ($this->flats as $flat) {
+            $flats[] = [
+                'flatNum' => $flat['num'],
+                'parameters' => [
+                    'blocked' => false,
+                    'redirection' => true,
+                    'sipAccountContact' => $flat['sipAccountContact'],
+                    'soundVol' => 100,
+                    'analogSettings' => [
+                        'alias' => $flat['analogSettings']['alias'],
+                        'blocked' => $flat['analogSettings']['blocked'],
+                        'thresholdCall' => $flat['analogSettings']['thresholdCall'],
+                        'thresholdDoor' => $flat['analogSettings']['thresholdDoor'],
+                    ],
+                ],
+            ];
+        }
+
+        $this->apiCall('mutation', 'updateIntercomFlats', [
+            'intercomID' => $this->uuid,
+            'flats' => $flats
+        ]);
     }
 
     protected function uploadPersonalCodes()
