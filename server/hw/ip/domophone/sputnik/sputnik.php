@@ -142,6 +142,12 @@ class sputnik extends domophone
     {
         $this->loadFlats();
 
+        // Clear all aliases
+        foreach ($this->flats as &$flat) {
+            $flat['analogSettings']['alias'] = null;
+        }
+
+        // Configure the necessary aliases
         foreach ($matrix as $cell) {
             [
                 'hundreds' => $hundreds,
@@ -662,9 +668,38 @@ class sputnik extends domophone
      */
     protected function loadPersonalCodes()
     {
-        if ($this->personalCodes === null) {
-            $codes = null;
+        if ($this->personalCodes !== null) {
+            return;
         }
+
+        $intercom = $this->apiCall('query', 'intercom', ['uuid' => $this->uuid], [
+            'configShadow' => [
+                'keys' => [
+                    'digitalKeys' => [
+                        'edges' => [
+                            'description',
+                            'node' => [
+                                'uuid',
+                                'value'
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]);
+
+        $rawCodes = $intercom['data']['intercom']['configShadow']['keys']['digitalKeys']['edges'];
+
+        $this->personalCodes = array_reduce($rawCodes, function ($result, $item) {
+            $description = $item['description'];
+
+            $result[$description] = [
+                'uuid' => $item['node']['uuid'],
+                'value' => $item['node']['value'],
+            ];
+
+            return $result;
+        }, []);
     }
 
     protected function updateFlats()
