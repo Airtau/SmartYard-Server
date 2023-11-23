@@ -13,9 +13,6 @@ class sputnik extends domophone
     use \hw\ip\common\sputnik\sputnik;
 
     protected array $rfidKeysToBeDeleted = [];
-    protected array $matrixToBeAdded = [];
-    protected array $codesToBeAdded = [];
-    protected array $flatsToBeAdded = [];
 
     /**
      * @var array|null $flats An array that holds flats information,
@@ -75,42 +72,16 @@ class sputnik extends domophone
         array $cmsLevels = []
     )
     {
-        $this->flatsToBeAdded[] = [
-            'flatNum' => $apartment,
-            'parameters' => [
-                'blocked' => false,
-                'redirection' => true,
-                'sipAccountContact' => "$sipNumbers[0]" ?? '',
-                'soundVol' => 100,
-                'analogSettings' => [
-                    // 'alias' => null,
-                    'blocked' => !$cmsEnabled,
-                    'thresholdCall' => $cmsLevels[0] ?? null,
-                    'thresholdDoor' => $cmsLevels[1] ?? null,
-                ],
-            ],
-        ];
+        $this->loadFlats();
+        $this->loadPersonalCodes();
 
-        // Check if the code of this apartment exists in the intercom
-        [$codeUUID, $intercomCode] = $this->getCodeByApartment($apartment) ?: [null, null];
+        $this->flats[$apartment]['sipAccountContact'] = $sipNumbers[0] ?? null;
+        $this->flats[$apartment]['analogSettings']['blocked'] = !$cmsEnabled;
+        $this->flats[$apartment]['analogSettings']['thresholdCall'] = $cmsLevels[0] ?? 9.99;
+        $this->flats[$apartment]['analogSettings']['thresholdDoor'] = $cmsLevels[1] ?? 9.99;
 
-        // If the code exists and needs to be deleted or the code for this apartment has changed,
-        // then it needs to be deleted
-        if ($codeUUID && (!$code || $code !== $intercomCode)) {
-            $this->apiCall('mutation', 'deleteDigitalKey', [
-                'intercomID' => $this->uuid,
-                'digitalKeyUUID' => $codeUUID,
-            ]);
-        }
-
-        // If the code in the panel and the code to be configured differ, then add a new code
-        if ($code && $code !== $intercomCode) {
-            $this->codesToBeAdded[] = [
-                'description' => "$apartment",
-                'digitalKeyUUID' => null,
-                'expTime' => null,
-                'value' => "$code",
-            ];
+        if ($code !== 0) {
+            $this->personalCodes[$apartment] = $code;
         }
     }
 
@@ -191,13 +162,8 @@ class sputnik extends domophone
     public function deleteApartment(int $apartment = 0)
     {
         if ($apartment !== 0) {
-            $this->apiCall('mutation', 'deleteFlat', [
-                'intercom' => [
-                    'motherboardID' => $this->motherboardID,
-                    'uuid' => $this->uuid,
-                ],
-                'num' => $apartment,
-            ]);
+            $this->flats[$apartment]['sipAccountContact'] = null;
+            unset($this->personalCodes[$apartment]);
         } else {
             // TODO: deleting all apartments
         }
@@ -326,14 +292,11 @@ class sputnik extends domophone
 
     public function syncData()
     {
-        $this->updateFlats();
+        $this->uploadFlats();
+        $this->uploadPersonalCodes();
 
         if ($this->rfidKeysToBeDeleted) {
             $this->deleteIntercomKeys($this->rfidKeysToBeDeleted);
-        }
-
-        if ($this->codesToBeAdded) {
-            $this->createDigitalKeys($this->codesToBeAdded);
         }
     }
 
@@ -351,14 +314,6 @@ class sputnik extends domophone
         $dbConfig['ntp']['timezone'] = $this->getOffsetByTimezone($dbConfig['ntp']['timezone']);
 
         return $dbConfig;
-    }
-
-    protected function createDigitalKeys($digitalKeys)
-    {
-        $this->apiCall('mutation', 'createDigitalKeys', [
-            'intercomID' => $this->uuid,
-            'digitalKeys' => $digitalKeys,
-        ]);
     }
 
     protected function deleteIntercomKeys($keys)
@@ -481,24 +436,6 @@ class sputnik extends domophone
         ]);
 
         return $intercom['data']['intercom']['configShadow']['commutator']['commutatorType'];
-    }
-
-    protected function getCodeByApartment(int $apartment): array
-    {
-        $intercom = $this->apiCall('query', 'intercom', ['uuid' => $this->uuid], [
-            'configShadow' => ['keys' => ['digitalKeys' => ['edges' => ['description', 'node' => ['uuid', 'value']]]]]
-        ]);
-
-        $rawCodes = $intercom['data']['intercom']['configShadow']['keys']['digitalKeys']['edges'];
-
-        foreach ($rawCodes as $rawCode) {
-            if ($apartment == $rawCode['description']) {
-                ['uuid' => $uuid, 'value' => $code] = $rawCode['node'];
-                return [$uuid, intval($code)];
-            }
-        }
-
-        return [];
     }
 
     protected function getDtmfConfig(): array
@@ -702,12 +639,22 @@ class sputnik extends domophone
         }, []);
     }
 
-    protected function updateFlats()
+    protected function uploadFlats()
     {
         if ($this->flats !== null) {
             $this->apiCall('mutation', 'updateIntercomFlats', [
                 'intercomID' => $this->uuid,
                 'flats' => $this->flats,
+            ]);
+        }
+    }
+
+    protected function uploadPersonalCodes()
+    {
+        if ($this->personalCodes !== null) {
+            $this->apiCall('mutation', 'createDigitalKeys', [
+                'intercomID' => $this->uuid,
+                'digitalKeys' => $this->personalCodes,
             ]);
         }
     }
