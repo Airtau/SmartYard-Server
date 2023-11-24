@@ -75,10 +75,14 @@ class sputnik extends domophone
         $this->loadFlats();
         $this->loadPersonalCodes();
 
-        $this->flats[$apartment]['sipAccountContact'] = "$sipNumbers[0]" ?? null;
-        $this->flats[$apartment]['analogSettings']['blocked'] = !$cmsEnabled;
-        $this->flats[$apartment]['analogSettings']['thresholdCall'] = $cmsLevels[0] ?? 9.99;
-        $this->flats[$apartment]['analogSettings']['thresholdDoor'] = $cmsLevels[1] ?? 9.99;
+        $flat = &$this->flats[$apartment];
+
+        $flat['num'] = $apartment;
+        $flat['sipAccountContact'] = "$sipNumbers[0]" ?? null;
+        $flat['analogSettings']['alias'] = $flat['analogSettings']['alias'] ?? 0;
+        $flat['analogSettings']['blocked'] = !$cmsEnabled;
+        $flat['analogSettings']['thresholdCall'] = $cmsLevels[0] ?? 9.99;
+        $flat['analogSettings']['thresholdDoor'] = $cmsLevels[1] ?? 9.99;
 
         if ($code !== 0) {
             $this->personalCodes[$apartment] = $code;
@@ -113,9 +117,9 @@ class sputnik extends domophone
     {
         $this->loadFlats();
 
-        // Clear all aliases
+        // Clear all aliases (analog numbers)
         foreach ($this->flats as &$flat) {
-            $flat['analogSettings']['alias'] = null;
+            $flat['analogSettings']['alias'] = 0;
         }
 
         // Configure the necessary aliases
@@ -645,6 +649,16 @@ class sputnik extends domophone
             return;
         }
 
+        $firstFlat = min(array_keys($this->flats));
+        $lastFlat = max(array_keys($this->flats));
+
+        // Upload flat range
+        $this->apiCall('mutation', 'updateIntercomFlatConfig', [
+            'intercomID' => $this->uuid,
+            'firstFlat' => $firstFlat,
+            'lastFlat' => $lastFlat,
+        ]);
+
         $flats = [];
 
         foreach ($this->flats as $flat) {
@@ -665,6 +679,7 @@ class sputnik extends domophone
             ];
         }
 
+        // Upload flats
         $this->apiCall('mutation', 'updateIntercomFlats', [
             'intercomID' => $this->uuid,
             'flats' => $flats
