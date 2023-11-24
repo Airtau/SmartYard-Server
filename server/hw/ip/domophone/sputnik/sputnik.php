@@ -590,9 +590,6 @@ class sputnik extends domophone
             ]
         ]);
 
-        $firstFlat = $intercom['data']['intercom']['configShadow']['flats']['firstFlat'];
-        $lastFlat = $intercom['data']['intercom']['configShadow']['flats']['lastFlat'];
-
         $rawFlats = $intercom['data']['intercom']['configShadow']['flats']['flats']['edges'];
 
         $flats = array_map(function ($item) {
@@ -649,8 +646,14 @@ class sputnik extends domophone
             return;
         }
 
-        $firstFlat = min(array_keys($this->flats));
-        $lastFlat = max(array_keys($this->flats));
+        // Filter all empty flats without a SIP number and without an analog number
+        $filteredFlats = array_filter($this->flats, function ($flat) {
+            return !empty($flat['sipAccountContact']) || $flat['analogSettings']['alias'] !== 0;
+        });
+
+        $flatNumbers = array_keys($filteredFlats);
+        $firstFlat = min($flatNumbers);
+        $lastFlat = max($flatNumbers);
 
         // Upload flat range
         $this->apiCall('mutation', 'updateIntercomFlatConfig', [
@@ -659,10 +662,8 @@ class sputnik extends domophone
             'lastFlat' => $lastFlat,
         ]);
 
-        $flats = [];
-
-        foreach ($this->flats as $flat) {
-            $flats[] = [
+        $flats = array_map(function ($flat) {
+            return [
                 'flatNum' => $flat['num'],
                 'parameters' => [
                     'blocked' => false,
@@ -677,7 +678,7 @@ class sputnik extends domophone
                     ],
                 ],
             ];
-        }
+        }, array_values($filteredFlats));
 
         // Upload flats
         $this->apiCall('mutation', 'updateIntercomFlats', [
