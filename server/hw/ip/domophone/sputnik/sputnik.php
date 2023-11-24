@@ -165,6 +165,9 @@ class sputnik extends domophone
 
     public function deleteApartment(int $apartment = 0)
     {
+        $this->loadFlats();
+        $this->loadPersonalCodes();
+
         if ($apartment !== 0) {
             $this->flats[$apartment]['sipAccountContact'] = null;
             unset($this->personalCodes[$apartment]);
@@ -297,7 +300,7 @@ class sputnik extends domophone
     public function syncData()
     {
         $this->uploadFlats();
-        $this->uploadPersonalCodes();
+        // $this->uploadPersonalCodes(); // TODO: implement
 
         if ($this->rfidKeysToBeDeleted) {
             $this->deleteIntercomKeys($this->rfidKeysToBeDeleted);
@@ -648,7 +651,7 @@ class sputnik extends domophone
 
         // Filter all empty flats without a SIP number and without an analog number
         $filteredFlats = array_filter($this->flats, function ($flat) {
-            return !empty($flat['sipAccountContact']) || $flat['analogSettings']['alias'] !== 0;
+            return !empty($flat['sipAccountContact']) || !empty($flat['analogSettings']['alias']);
         });
 
         $flatNumbers = array_keys($filteredFlats);
@@ -661,6 +664,8 @@ class sputnik extends domophone
             'firstFlat' => $firstFlat,
             'lastFlat' => $lastFlat,
         ]);
+
+        sleep(5); // Without this, with a large range of flats, the last flat is duplicated
 
         $flats = array_map(function ($flat) {
             return [
