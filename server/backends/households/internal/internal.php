@@ -341,6 +341,35 @@
                         ];
                         break;
 
+                    case "contracts":
+                        if (!is_array($params)) {
+                            return false;
+                        }
+
+                        $_contracts = [];
+
+                        foreach ($params as $contract) {
+                            if (is_array($contract) || is_object($contract)) {
+                                return false;
+                            }
+
+                            $contract = trim((string)$contract);
+
+                            if ($contract === "") {
+                                return false;
+                            }
+
+                            $_contracts[$contract] = $contract;
+                        }
+
+                        if (!count($_contracts)) {
+                            return [];
+                        }
+
+                        $contractsQueryString = implode(",", array_map([ $this->db, "quote" ], array_values($_contracts)));
+                        $q = "select house_flat_id from houses_flats where contract in ($contractsQueryString) group by house_flat_id";
+                        break;
+
                     case "car":
                         $q = "select house_flat_id from houses_flats where cars is not null and cars like concat('%', cast(:number as varchar), '%') group by house_flat_id";
                         $p = [
