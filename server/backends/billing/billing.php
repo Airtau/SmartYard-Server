@@ -31,6 +31,31 @@ namespace backends\billing {
         abstract function setContractsBindings($items);
 
         /**
+         * imports address hierarchy from billing into RBT
+         * required minimum is hierarchy up to house
+         * optional: flats list for each house
+         *
+         * each item:
+         * - regionUuid, region (required)
+         * - areaUuid, area (optional)
+         * - cityUuid, city (optional, at least one of area/city must be provided)
+         * - settlementUuid, settlement (optional)
+         * - streetUuid, street (optional, at least one of settlement/street must be provided)
+         *   if settlement is omitted and street is provided, city is required
+         * - houseUuid, house (required)
+         * - houseFull (optional)
+         * - services (optional) array of:
+         *   "internet","iptv","ctv","phone","cctv","domophone","gsm"
+         * - flats (optional) array of items:
+         *   - flat or flatNumber (required)
+         *   - floor (optional)
+         *
+         * @return boolean|array
+         */
+
+        abstract function importAddressHierarchy($items);
+
+        /**
          * full subscribers sync for flats contract/autoBlock/customFields
          *
          * @param $subscribers array of subscribers
