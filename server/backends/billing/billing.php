@@ -15,6 +15,18 @@ namespace backends\billing {
     abstract class billing extends backend {
 
         /**
+         * returns basic subscriber account info from billing by login/password
+         *
+         * @param $login subscriber login in billing
+         * @param $password subscriber password in billing
+         * @return false|array
+         * false if request/auth/parsing failed (error details are available via setLastError/getLastError)
+         *
+        */
+
+        public abstract function getSubscriberAccountInfo($login, $password);
+
+        /**
          * @param $items array of flat-contract links from billing
          * each item:
          * - houseId (required)
