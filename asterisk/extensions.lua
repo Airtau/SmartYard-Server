@@ -470,7 +470,7 @@ function handleOtherCases(context, extension)
 
         -- sokol's crutch
         -- TODO: delete after fixing SIP numbers for flats
-        if extension:len() < 5 then
+        if extension:len() < 5 and not extension:find('#', 1, true) then
             logDebug("bad extension, replacing...")
             local flats = dm("apartment", {
                 domophoneId = domophoneId,
