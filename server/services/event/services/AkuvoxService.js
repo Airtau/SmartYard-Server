@@ -222,6 +222,8 @@ class AkuvoxService extends SyslogService {
             await API.openDoor({ date: now, ip: host, door: 0, detail: 'main', by: 'button' });
         }
 
+        // Call processing
+        // FIXME: Device doesn't send call end events when cancel (C) is pressed on the panel during an active call
         const isCallStart = msg.includes('MakeCall-') && msg.includes('nCallID');
         const isSipEstablished = msg.includes('SIP_LOG:MSG_S2P_ESTABLISHED_CALL');
         const isAnalogEstablished = msg.includes('Analog Established Call');
