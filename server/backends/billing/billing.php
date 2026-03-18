@@ -27,6 +27,18 @@ namespace backends\billing {
         public abstract function getSubscriberAccountInfo($login, $password);
 
         /**
+         * returns additional services details from billing by login/password
+         *
+         * @param $login subscriber login in billing
+         * @param $password subscriber password in billing
+         * @param $agrmid agreement id in billing (required for getUsboxServices)
+         * @return false|array
+         * false if request/auth/parsing failed (error details are available via setLastError/getLastError)
+         */
+
+        public abstract function getSubscriberAdditionalServices($login, $password, $agrmid);
+
+        /**
          * @param $items array of flat-contract links from billing
          * each item:
          * - houseId (required)
