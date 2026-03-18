@@ -1230,6 +1230,60 @@ namespace backends\billing {
                     $flat = @$flatByPair[$pairKey];
 
                     if (!is_array($flat) || !count($flat)) {
+                        $fallbackFlatId = null;
+                        $fallbackRows = $households->getFlats("contract", [ "contract" => $subscriber["contract"] ]);
+
+                        if (is_array($fallbackRows) && count($fallbackRows)) {
+                            $fallbackById = [];
+                            foreach ($fallbackRows as $fallbackRow) {
+                                $fallbackRowFlatId = @$fallbackRow["flatId"];
+                                if (!checkInt($fallbackRowFlatId)) {
+                                    continue;
+                                }
+                                $fallbackById[$fallbackRowFlatId] = $fallbackRow;
+                            }
+
+                            if (count($fallbackById) === 1) {
+                                $fallbackFlatId = (int)array_key_first($fallbackById);
+                            } else
+                            if (count($fallbackById) > 1) {
+                                $result["failed"]++;
+                                $result["errors"][] = [
+                                    "index" => $subscriber["index"],
+                                    "error" => "multipleFlatsByContractFallback",
+                                    "subscriberID" => $subscriber["subscriberID"],
+                                    "contract" => $subscriber["contract"],
+                                    "flatIds" => array_values(array_map("intval", array_keys($fallbackById))),
+                                ];
+                            }
+                        }
+
+                        if ($fallbackFlatId !== null) {
+                            $autoBlock = $subscriber["isActive"] ? 0 : 1;
+
+                            error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flat " . json_encode([
+                                "index" => $subscriber["index"],
+                                "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
+                                "resolvedFlatId" => $fallbackFlatId,
+                                "targetAutoBlock" => $autoBlock,
+                            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+                            if ($households->modifyFlat($fallbackFlatId, [ "autoBlock" => $autoBlock ]) === false) {
+                                $result["failed"]++;
+                                $result["errors"][] = [
+                                    "index" => $subscriber["index"],
+                                    "error" => "cantModifyFlatFallbackByContract",
+                                    "flatId" => $fallbackFlatId,
+                                    "subscriberID" => $subscriber["subscriberID"],
+                                    "targetAutoBlock" => $autoBlock,
+                                ];
+                                continue;
+                            }
+
+                            $result["updated"]++;
+                            continue;
+                        }
+
                         $result["notFound"]++;
                         $result["errors"][] = [
                             "index" => $subscriber["index"],
