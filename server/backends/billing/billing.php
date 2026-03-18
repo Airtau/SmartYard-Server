@@ -1090,10 +1090,9 @@ namespace backends\billing {
             }
 
             $households = loadBackend("households");
-            $addresses = loadBackend("addresses");
             $customFields = loadBackend("customFields");
 
-            if (!$households || !$addresses || !$customFields) {
+            if (!$households || !$customFields) {
                 return false;
             }
 
@@ -1193,59 +1192,44 @@ namespace backends\billing {
                     $pairRows = [];
                 }
 
-                $houseUuids = [];
-                $flatsByPair = [];
+                $flatByPair = [];
 
                 foreach ($pairRows as $row) {
                     $flatId = @$row["flatId"];
-                    $houseId = @$row["houseId"];
                     $flat = @$row["flat"];
+                    $houseUuid = @$row["houseUuid"];
 
-                    if (!checkInt($flatId) || !checkInt($houseId) || !checkStr($flat) || $flat === "") {
+                    if (!checkInt($flatId) || !checkStr($flat) || $flat === "" || !checkStr($houseUuid) || $houseUuid === "") {
                         $result["failed"]++;
                         $result["errors"][] = [
                             "error" => "invalidRow",
                             "flatId" => @$row["flatId"],
-                            "houseId" => @$row["houseId"],
+                            "houseUuid" => @$row["houseUuid"],
                         ];
                         continue;
                     }
 
-                    if (!array_key_exists($houseId, $houseUuids)) {
-                        $house = $addresses->getHouse($houseId);
-                        $houseUuid = @$house["houseUuid"];
+                    $pairKey = $houseUuid . "\n" . $flat;
 
-                        if (!checkStr($houseUuid) || $houseUuid === "") {
-                            $houseUuids[$houseId] = false;
-                        } else {
-                            $houseUuids[$houseId] = $houseUuid;
-                        }
-                    }
-
-                    if (!$houseUuids[$houseId]) {
+                    if (array_key_exists($pairKey, $flatByPair)) {
                         $result["failed"]++;
                         $result["errors"][] = [
-                            "error" => "cantGetHouseUuid",
+                            "error" => "duplicateFlatByHouseUuidFlat",
                             "flatId" => $flatId,
-                            "houseId" => $houseId,
+                            "houseUuid" => $houseUuid,
+                            "flatNumber" => $flat,
                         ];
                         continue;
                     }
 
-                    $pairKey = $houseUuids[$houseId] . "\n" . $flat;
-
-                    if (!array_key_exists($pairKey, $flatsByPair)) {
-                        $flatsByPair[$pairKey] = [];
-                    }
-
-                    $flatsByPair[$pairKey][$flatId] = $row;
+                    $flatByPair[$pairKey] = $row;
                 }
 
                 foreach ($normalizedSubscribers as $subscriber) {
                     $pairKey = $subscriber["pairKey"];
-                    $pairFlats = @$flatsByPair[$pairKey];
+                    $flat = @$flatByPair[$pairKey];
 
-                    if (!is_array($pairFlats) || !count($pairFlats)) {
+                    if (!is_array($flat) || !count($flat)) {
                         $result["notFound"]++;
                         $result["errors"][] = [
                             "index" => $subscriber["index"],
@@ -1257,57 +1241,55 @@ namespace backends\billing {
                         continue;
                     }
 
-                    foreach ($pairFlats as $flat) {
-                        $flatId = @$flat["flatId"];
+                    $flatId = @$flat["flatId"];
 
-                        if (!checkInt($flatId)) {
-                            $result["failed"]++;
-                            $result["errors"][] = [
-                                "index" => $subscriber["index"],
-                                "error" => "invalidFlatId",
-                                "subscriberID" => $subscriber["subscriberID"],
-                            ];
-                            continue;
-                        }
-
-                        $autoBlock = $subscriber["isActive"] ? 0 : 1;
-
-                        if ($households->modifyFlat($flatId, [
-                                "contract" => $subscriber["contract"],
-                                "autoBlock" => $autoBlock,
-                            ]) === false) {
-                            $result["failed"]++;
-                            $result["errors"][] = [
-                                "index" => $subscriber["index"],
-                                "error" => "cantModifyFlat",
-                                "flatId" => $flatId,
-                                "subscriberID" => $subscriber["subscriberID"],
-                            ];
-                            continue;
-                        }
-
-                        $values = $customFields->getValues("flat", $flatId);
-
-                        if (!is_array($values)) {
-                            $values = [];
-                        }
-
-                        $values["agreement"] = $subscriber["agreement"];
-                        $values["addressText"] = $subscriber["addressText"];
-
-                        if ($customFields->modifyValues("flat", $flatId, $values) === false) {
-                            $result["failed"]++;
-                            $result["errors"][] = [
-                                "index" => $subscriber["index"],
-                                "error" => "cantModifyCustomFields",
-                                "flatId" => $flatId,
-                                "subscriberID" => $subscriber["subscriberID"],
-                            ];
-                            continue;
-                        }
-
-                        $result["updated"]++;
+                    if (!checkInt($flatId)) {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $subscriber["index"],
+                            "error" => "invalidFlatId",
+                            "subscriberID" => $subscriber["subscriberID"],
+                        ];
+                        continue;
                     }
+
+                    $autoBlock = $subscriber["isActive"] ? 0 : 1;
+
+                    if ($households->modifyFlat($flatId, [
+                            "contract" => $subscriber["contract"],
+                            "autoBlock" => $autoBlock,
+                        ]) === false) {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $subscriber["index"],
+                            "error" => "cantModifyFlat",
+                            "flatId" => $flatId,
+                            "subscriberID" => $subscriber["subscriberID"],
+                        ];
+                        continue;
+                    }
+
+                    $values = $customFields->getValues("flat", $flatId);
+
+                    if (!is_array($values)) {
+                        $values = [];
+                    }
+
+                    $values["agreement"] = $subscriber["agreement"];
+                    $values["addressText"] = $subscriber["addressText"];
+
+                    if ($customFields->modifyValues("flat", $flatId, $values) === false) {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $subscriber["index"],
+                            "error" => "cantModifyCustomFields",
+                            "flatId" => $flatId,
+                            "subscriberID" => $subscriber["subscriberID"],
+                        ];
+                        continue;
+                    }
+
+                    $result["updated"]++;
                 }
             }
 

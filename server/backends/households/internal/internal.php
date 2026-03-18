@@ -129,6 +129,7 @@
             function getFlats($by, $params) {
                 $q = "";
                 $p = [];
+                $attachHouseUuid = false;
 
                 switch ($by) {
                     case "flatIdByPrefix":
@@ -405,7 +406,7 @@
                             return false;
                         }
 
-                        $conditions = [];
+                        $pairs = [];
                         $i = 0;
 
                         foreach ($params as $pair) {
@@ -423,17 +424,23 @@
                             $houseKey = "house_uuid_$i";
                             $flatKey = "flat_$i";
 
-                            $conditions[] = "(addresses_houses.house_uuid = :$houseKey and houses_flats.flat = :$flatKey)";
+                            $pairHash = $houseUuid . "\n" . $flatNumber;
+                            if (array_key_exists($pairHash, $pairs)) {
+                                continue;
+                            }
+
+                            $pairs[$pairHash] = "(:$houseKey, :$flatKey)";
                             $p[$houseKey] = $houseUuid;
                             $p[$flatKey] = $flatNumber;
                             $i++;
                         }
 
-                        if (!count($conditions)) {
+                        if (!count($pairs)) {
                             return [];
                         }
 
-                        $q = "select houses_flats.house_flat_id from houses_flats left join addresses_houses on houses_flats.address_house_id = addresses_houses.address_house_id where " . implode(" or ", $conditions) . " group by houses_flats.house_flat_id";
+                        $attachHouseUuid = true;
+                        $q = "select houses_flats.house_flat_id, addresses_houses.house_uuid from houses_flats left join addresses_houses on houses_flats.address_house_id = addresses_houses.address_house_id where (addresses_houses.house_uuid, houses_flats.flat) in (" . implode(", ", array_values($pairs)) . ") group by houses_flats.house_flat_id, addresses_houses.house_uuid";
                         break;
 
                     case "car":
@@ -477,7 +484,16 @@
                 if ($flats) {
                     $_flats = [];
                     foreach ($flats as $flat) {
-                        $_flats[] = $this->getFlat($flat["house_flat_id"]);
+                        $_flat = $this->getFlat($flat["house_flat_id"]);
+                        if (!is_array($_flat)) {
+                            continue;
+                        }
+
+                        if ($attachHouseUuid && checkStr(@$flat["house_uuid"]) && $flat["house_uuid"] !== "") {
+                            $_flat["houseUuid"] = $flat["house_uuid"];
+                        }
+
+                        $_flats[] = $_flat;
                     }
                     return $_flats;
                 } else {
