@@ -167,7 +167,7 @@
                     return false;
                 }
 
-                if (!trim($name) || !trim(baseUrl) || !trim($tokenCommon)) {
+                if (!trim($name) || !trim($baseUrl) || !trim($tokenCommon)) {
                     return false;
                 }
 
