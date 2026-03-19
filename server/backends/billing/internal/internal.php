@@ -12,9 +12,6 @@
 
         class internal extends billing {
 
-            use soapClient;
-            use customHelpers;
-
             /**
              * @inheritDoc
              */
