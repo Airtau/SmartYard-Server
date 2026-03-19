@@ -293,6 +293,7 @@ abstract class akuvox extends domophone
             'target' => 'relay',
             'action' => 'set',
             'data' => [
+                'Config.DoorSetting.RELAY.DTMFUnlock' => '2', // Assigned the authority for all numbers
                 'Config.DoorSetting.DTMF.Code1' => $code1,
                 'Config.DoorSetting.DTMF.Code2' => $code2,
             ],
@@ -547,6 +548,17 @@ abstract class akuvox extends domophone
             'Config.DoorSetting.GENERAL.WiegandOpenRelayA' => $openRelayA ? '1' : '0',
             'Config.DoorSetting.GENERAL.WiegandOpenRelayB' => $openRelayB ? '1' : '0',
         ]);
+    }
+
+    /**
+     * Enables or disables HTTPS access for the web server.
+     *
+     * @param bool $enabled Whether to enable HTTPS. Defaults to true.
+     * @return void
+     */
+    protected function setHttpsEnabled(bool $enabled = true): void
+    {
+        $this->setConfigParams(['Config.Network.WEBSERVER.HttpsEnable' => $enabled ? '1' : '0']);
     }
 
     /**
