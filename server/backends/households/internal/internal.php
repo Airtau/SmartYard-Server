@@ -489,8 +489,9 @@
                             continue;
                         }
 
-                        if ($attachHouseUuid && checkStr(@$flat["house_uuid"]) && $flat["house_uuid"] !== "") {
-                            $_flat["houseUuid"] = $flat["house_uuid"];
+                        $houseUuid = @$flat["house_uuid"];
+                        if ($attachHouseUuid && checkStr($houseUuid) && $houseUuid !== "") {
+                            $_flat["houseUuid"] = $houseUuid;
                         }
 
                         $_flats[] = $_flat;
