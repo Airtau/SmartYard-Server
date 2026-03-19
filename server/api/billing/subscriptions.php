@@ -17,7 +17,18 @@
         * @apiParam {String} subscribers.addressText address text
         * @apiParam {String} subscribers.buildingUUID building UUID
         * @apiParam {String} subscribers.flatNumber flat number
-     * @apiSuccess {Boolean} success synchronization result
+     * @apiSuccess {Object} subscriptions synchronization result
+     * @apiSuccess {Number} subscriptions.processed total processed subscriber items
+     * @apiSuccess {Number} subscriptions.updated successfully updated flats
+     * @apiSuccess {Number} subscriptions.invalid invalid subscriber items
+     * @apiSuccess {Number} subscriptions.notFound subscribers not matched to any flat
+     * @apiSuccess {Number} subscriptions.failed internal processing errors count
+     * @apiSuccess {String} subscriptions.defaultAction default action for missing contracts (`skipMissing|blockMissing|unblockMissing`)
+     * @apiSuccess {Object} subscriptions.missing result for contracts not present in request
+     * @apiSuccess {Number} subscriptions.missing.updated count of missing contracts with updated autoBlock
+     * @apiSuccess {Number} subscriptions.missing.unchanged count of missing contracts left unchanged
+     * @apiSuccess {Number} subscriptions.missing.failed count of missing contracts failed to update
+     * @apiSuccess {Object[]} subscriptions.errors list of validation/runtime errors
      */
 
     /**
@@ -97,4 +108,3 @@
             }
         }
     }
-
