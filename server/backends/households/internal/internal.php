@@ -129,6 +129,7 @@
             function getFlats($by, $params) {
                 $q = "";
                 $p = [];
+                $attachHouseUuid = false;
 
                 switch ($by) {
                     case "flatIdByPrefix":
@@ -341,6 +342,107 @@
                         ];
                         break;
 
+                    case "contracts":
+                        if (!is_array($params)) {
+                            return false;
+                        }
+
+                        $_contracts = [];
+
+                        foreach ($params as $contract) {
+                            if (is_array($contract) || is_object($contract)) {
+                                return false;
+                            }
+
+                            $contract = trim((string)$contract);
+
+                            if ($contract === "") {
+                                return false;
+                            }
+
+                            $_contracts[$contract] = $contract;
+                        }
+
+                        if (!count($_contracts)) {
+                            return [];
+                        }
+
+                        $contractsQueryString = implode(",", array_map([ $this->db, "quote" ], array_values($_contracts)));
+                        $q = "select house_flat_id from houses_flats where contract in ($contractsQueryString) group by house_flat_id";
+                        break;
+
+                    case "notContracts":
+                        if (!is_array($params)) {
+                            return false;
+                        }
+
+                        $_contracts = [];
+
+                        foreach ($params as $contract) {
+                            if (is_array($contract) || is_object($contract)) {
+                                return false;
+                            }
+
+                            $contract = trim((string)$contract);
+
+                            if ($contract === "") {
+                                return false;
+                            }
+
+                            $_contracts[$contract] = $contract;
+                        }
+
+                        if (!count($_contracts)) {
+                            $q = "select house_flat_id from houses_flats where contract is not null and contract <> '' group by house_flat_id";
+                            break;
+                        }
+
+                        $contractsQueryString = implode(",", array_map([ $this->db, "quote" ], array_values($_contracts)));
+                        $q = "select house_flat_id from houses_flats where contract is not null and contract <> '' and contract not in ($contractsQueryString) group by house_flat_id";
+                        break;
+
+                    case "houseUuidFlat":
+                        if (!is_array($params)) {
+                            return false;
+                        }
+
+                        $pairs = [];
+                        $i = 0;
+
+                        foreach ($params as $pair) {
+                            if (!is_array($pair)) {
+                                return false;
+                            }
+
+                            $houseUuid = @$pair["buildingUUID"];
+                            $flatNumber = @$pair["flatNumber"];
+
+                            if (!checkStr($houseUuid) || $houseUuid === "" || !checkStr($flatNumber) || $flatNumber === "") {
+                                return false;
+                            }
+
+                            $houseKey = "house_uuid_$i";
+                            $flatKey = "flat_$i";
+
+                            $pairHash = $houseUuid . "\n" . $flatNumber;
+                            if (array_key_exists($pairHash, $pairs)) {
+                                continue;
+                            }
+
+                            $pairs[$pairHash] = "(:$houseKey, :$flatKey)";
+                            $p[$houseKey] = $houseUuid;
+                            $p[$flatKey] = $flatNumber;
+                            $i++;
+                        }
+
+                        if (!count($pairs)) {
+                            return [];
+                        }
+
+                        $attachHouseUuid = true;
+                        $q = "select houses_flats.house_flat_id, addresses_houses.house_uuid from houses_flats left join addresses_houses on houses_flats.address_house_id = addresses_houses.address_house_id where (addresses_houses.house_uuid, houses_flats.flat) in (" . implode(", ", array_values($pairs)) . ") group by houses_flats.house_flat_id, addresses_houses.house_uuid";
+                        break;
+
                     case "car":
                         $q = "select house_flat_id from houses_flats where cars is not null and cars like concat('%', cast(:number as varchar), '%') group by house_flat_id";
                         $p = [
@@ -382,7 +484,17 @@
                 if ($flats) {
                     $_flats = [];
                     foreach ($flats as $flat) {
-                        $_flats[] = $this->getFlat($flat["house_flat_id"]);
+                        $_flat = $this->getFlat($flat["house_flat_id"]);
+                        if (!is_array($_flat)) {
+                            continue;
+                        }
+
+                        $houseUuid = @$flat["house_uuid"];
+                        if ($attachHouseUuid && checkStr($houseUuid) && $houseUuid !== "") {
+                            $_flat["houseUuid"] = $houseUuid;
+                        }
+
+                        $_flats[] = $_flat;
                     }
                     return $_flats;
                 } else {
