@@ -1308,6 +1308,20 @@ namespace backends\billing {
                     }
 
                     $autoBlock = $subscriber["isActive"] ? 0 : 1;
+                    $rbtSubscriberId = trim((string)@$flat["contract"]);
+                    $incomingSubscriberId = trim((string)$subscriber["contract"]);
+
+                    if ($rbtSubscriberId !== "" && $rbtSubscriberId !== $incomingSubscriberId) {
+                        error_log("[billing/syncAutoBlockByContracts] warning: subscriberID mismatch for flat resolved by houseUUID+flat " . json_encode([
+                            "index" => $subscriber["index"],
+                            "flatId" => (int)$flatId,
+                            "houseUUID" => $subscriber["buildingUUID"],
+                            "flatNumber" => $subscriber["flatNumber"],
+                            "rbtSubscriberID" => $rbtSubscriberId,
+                            "incomingSubscriberID" => $incomingSubscriberId,
+                            "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
+                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                    }
 
                     if ($households->modifyFlat($flatId, [
                             "contract" => $subscriber["contract"],
