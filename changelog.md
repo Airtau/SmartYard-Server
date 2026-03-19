@@ -13,6 +13,11 @@
 + expanded RODOS support, the entire line should work, from 1 to 16 outputs
 + markdown in comments and description in TT
 + dial to analog intercom by cms matrix (useAnalogNumber)
++ added support for BasIP AA-07BD
+- fixed openCode and floor clearing in modifyFlat() when params missing
+! changed SIP transport from TCP to UDP for Rubetek
+- fixed user dropdown menu
++ added support for Akuvox S532
 ```
 
 ## 2026-01-14 0.0.20 hotfix 8
