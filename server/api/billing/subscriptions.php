@@ -93,9 +93,8 @@
                     $response = $billing->syncAutoBlockByContracts($_subscribers, "skipMissing");
                 }
                 
-                return api::ANSWER($response, ($$response !== false) ? "subscriptions" : false);
+                return api::ANSWER($response, ($response !== false) ? "subscriptions" : false);
             }
         }
     }
-
 
