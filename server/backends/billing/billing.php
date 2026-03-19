@@ -1068,12 +1068,14 @@ namespace backends\billing {
          *
          * @param $subscribers array of subscribers
          * each item:
-         * - subscriberID (required, numeric, stored to flat.contract)
-         * - agreement (required, string, stored to custom field agreement)
          * - isActive (required, bool/int, if true -> autoBlock = 0, else autoBlock = 1)
-         * - addressText (required, string, stored to custom field addressText)
-         * - buildingUUID (required, string)
-         * - flatNumber (required, string)
+         * - subscriberID (optional, numeric, used for contract lookup and flat.contract update)
+         * - buildingUUID + flatNumber/flat (optional pair, used for direct flat lookup)
+         *   at least one lookup option is required:
+         *   - subscriberID
+         *   - both buildingUUID and flatNumber/flat
+         * - agreement (optional, string, stored to custom field agreement only if provided)
+         * - addressText (optional, string, stored to custom field addressText only if provided)
          * @param $defaultAction string
          * values:
          * - "skipMissing" (default): do not change subscribers not in list
@@ -1084,15 +1086,17 @@ namespace backends\billing {
          */
 
         function syncAutoBlockByContracts($subscribers, $defaultAction = "skipMissing") {
+            // Step 1: validate input contract for sync mode.
             if (!is_array($subscribers) || !is_string($defaultAction) || !in_array($defaultAction, [ "skipMissing", "blockMissing", "unblockMissing" ], true)) {
                 setLastError("invalidParams");
                 return false;
             }
 
+            // Step 2: load dependencies required for flat search/update.
             $households = loadBackend("households");
-            $customFields = loadBackend("customFields");
+            $customFields = null;
 
-            if (!$households || !$customFields) {
+            if (!$households) {
                 return false;
             }
 
@@ -1114,151 +1118,42 @@ namespace backends\billing {
             $normalizedSubscribers = [];
             $pairs = [];
             $contracts = [];
+            $hasSubscribersWithoutContract = false;
 
+            // Step 3: normalize each subscriber and build lookup indexes.
             foreach ($subscribers as $index => $subscriber) {
                 $result["processed"]++;
+                $normalized = $this->normalizeSyncSubscriberItem(
+                    $index,
+                    $subscriber,
+                    $result,
+                    $pairs,
+                    $contracts,
+                    $hasSubscribersWithoutContract
+                );
 
-                if (!is_array($subscriber) ||
-                    !array_key_exists("subscriberID", $subscriber) ||
-                    !array_key_exists("agreement", $subscriber) ||
-                    !array_key_exists("isActive", $subscriber) ||
-                    !array_key_exists("addressText", $subscriber) ||
-                    !array_key_exists("buildingUUID", $subscriber) ||
-                    !array_key_exists("flatNumber", $subscriber)
-                ) {
-                    $result["invalid"]++;
-                    $result["errors"][] = [
-                        "index" => $index,
-                        "error" => "invalidItem",
-                    ];
-                    continue;
+                if ($normalized !== false) {
+                    $normalizedSubscribers[] = $normalized;
                 }
-
-                $subscriberID = $subscriber["subscriberID"];
-                $agreement = $subscriber["agreement"];
-                $isActive = $subscriber["isActive"];
-                $addressText = $subscriber["addressText"];
-                $buildingUUID = $subscriber["buildingUUID"];
-                $flatNumber = $subscriber["flatNumber"];
-
-                if (!checkInt($subscriberID) || !$subscriberID ||
-                    !checkStr($agreement) || $agreement === "" ||
-                    !checkInt($isActive) || !in_array((int)$isActive, [ 0, 1 ], true) ||
-                    !checkStr($addressText) || $addressText === "" ||
-                    !checkStr($buildingUUID) || $buildingUUID === "" ||
-                    !checkStr($flatNumber) || $flatNumber === ""
-                ) {
-                    $result["invalid"]++;
-                    $result["errors"][] = [
-                        "index" => $index,
-                        "error" => "invalidParams",
-                        "subscriberID" => $subscriber["subscriberID"],
-                        "buildingUUID" => $subscriber["buildingUUID"],
-                        "flatNumber" => $subscriber["flatNumber"],
-                    ];
-                    continue;
-                }
-
-                $contract = (string)$subscriberID;
-                $pairKey = $buildingUUID . "\n" . $flatNumber;
-
-                $normalizedSubscribers[] = [
-                    "index" => $index,
-                    "subscriberID" => $subscriberID,
-                    "contract" => $contract,
-                    "agreement" => $agreement,
-                    "isActive" => (int)$isActive,
-                    "addressText" => $addressText,
-                    "buildingUUID" => $buildingUUID,
-                    "flatNumber" => $flatNumber,
-                    "pairKey" => $pairKey,
-                ];
-
-                $contracts[$contract] = $contract;
-                $pairs[$pairKey] = [
-                    "buildingUUID" => $buildingUUID,
-                    "flatNumber" => $flatNumber,
-                ];
             }
 
             if (count($normalizedSubscribers)) {
-                $pairRows = $households->getFlats("houseUuidFlat", array_values($pairs));
-
-                if (!is_array($pairRows)) {
-                    $result["failed"]++;
-                    $result["errors"][] = [
-                        "error" => "cantGetFlatsByHouseUuidFlat",
-                    ];
-                    $pairRows = [];
-                }
-
-                $flatByPair = [];
-
-                foreach ($pairRows as $row) {
-                    $flatId = @$row["flatId"];
-                    $flat = @$row["flat"];
-                    $houseUuid = @$row["houseUuid"];
-
-                    if (!checkInt($flatId) || !checkStr($flat) || $flat === "" || !checkStr($houseUuid) || $houseUuid === "") {
-                        $result["failed"]++;
-                        $result["errors"][] = [
-                            "error" => "invalidRow",
-                            "flatId" => @$row["flatId"],
-                            "houseUuid" => @$row["houseUuid"],
-                        ];
-                        continue;
-                    }
-
-                    $pairKey = $houseUuid . "\n" . $flat;
-
-                    if (array_key_exists($pairKey, $flatByPair)) {
-                        $result["failed"]++;
-                        $result["errors"][] = [
-                            "error" => "duplicateFlatByHouseUuidFlat",
-                            "flatId" => $flatId,
-                            "houseUuid" => $houseUuid,
-                            "flatNumber" => $flat,
-                        ];
-                        continue;
-                    }
-
-                    $flatByPair[$pairKey] = $row;
-                }
+                // Step 4: preload flats by (houseUUID, flatNumber) pair for batch processing.
+                $flatByPair = $this->buildSyncFlatByPairMap($households, $pairs, $result);
 
                 foreach ($normalizedSubscribers as $subscriber) {
-                    $pairKey = $subscriber["pairKey"];
-                    $flat = @$flatByPair[$pairKey];
+                    // Step 5: resolve target flat (primary by pair, fallback by contract).
+                    $flat = null;
+                    if ($subscriber["hasPair"]) {
+                        $pairKey = $subscriber["pairKey"];
+                        $flat = @$flatByPair[$pairKey];
+                    }
 
                     if (!is_array($flat) || !count($flat)) {
-                        $fallbackFlatId = null;
-                        $fallbackRows = $households->getFlats("contract", [ "contract" => $subscriber["contract"] ]);
-
-                        if (is_array($fallbackRows) && count($fallbackRows)) {
-                            $fallbackById = [];
-                            foreach ($fallbackRows as $fallbackRow) {
-                                $fallbackRowFlatId = @$fallbackRow["flatId"];
-                                if (!checkInt($fallbackRowFlatId)) {
-                                    continue;
-                                }
-                                $fallbackById[$fallbackRowFlatId] = $fallbackRow;
-                            }
-
-                            if (count($fallbackById) === 1) {
-                                $fallbackFlatId = (int)array_key_first($fallbackById);
-                            } else
-                            if (count($fallbackById) > 1) {
-                                $result["failed"]++;
-                                $result["errors"][] = [
-                                    "index" => $subscriber["index"],
-                                    "error" => "multipleFlatsByContractFallback",
-                                    "subscriberID" => $subscriber["subscriberID"],
-                                    "contract" => $subscriber["contract"],
-                                    "flatIds" => array_values(array_map("intval", array_keys($fallbackById))),
-                                ];
-                            }
-                        }
+                        $fallbackFlatId = $this->resolveSyncFallbackFlatIdByContract($households, $subscriber, $result);
 
                         if ($fallbackFlatId !== null) {
+                            // Step 6a: fallback mode updates only autoBlock.
                             $autoBlock = $subscriber["isActive"] ? 0 : 1;
 
                             error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flat " . json_encode([
@@ -1289,8 +1184,8 @@ namespace backends\billing {
                             "index" => $subscriber["index"],
                             "error" => "flatNotFound",
                             "subscriberID" => $subscriber["subscriberID"],
-                            "buildingUUID" => $subscriber["buildingUUID"],
-                            "flatNumber" => $subscriber["flatNumber"],
+                            "buildingUUID" => $subscriber["hasPair"] ? $subscriber["buildingUUID"] : null,
+                            "flatNumber" => $subscriber["hasPair"] ? $subscriber["flatNumber"] : null,
                         ];
                         continue;
                     }
@@ -1307,26 +1202,31 @@ namespace backends\billing {
                         continue;
                     }
 
+                    // Step 6b: primary mode updates autoBlock and (optionally) contract/custom fields.
                     $autoBlock = $subscriber["isActive"] ? 0 : 1;
-                    $rbtSubscriberId = trim((string)@$flat["contract"]);
-                    $incomingSubscriberId = trim((string)$subscriber["contract"]);
+                    if ($subscriber["hasSubscriberID"]) {
+                        $rbtSubscriberId = trim((string)@$flat["contract"]);
+                        $incomingSubscriberId = trim((string)$subscriber["contract"]);
 
-                    if ($rbtSubscriberId !== "" && $rbtSubscriberId !== $incomingSubscriberId) {
-                        error_log("[billing/syncAutoBlockByContracts] warning: subscriberID mismatch for flat resolved by houseUUID+flat " . json_encode([
-                            "index" => $subscriber["index"],
-                            "flatId" => (int)$flatId,
-                            "houseUUID" => $subscriber["buildingUUID"],
-                            "flatNumber" => $subscriber["flatNumber"],
-                            "rbtSubscriberID" => $rbtSubscriberId,
-                            "incomingSubscriberID" => $incomingSubscriberId,
-                            "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
-                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                        if ($rbtSubscriberId !== "" && $rbtSubscriberId !== $incomingSubscriberId) {
+                            error_log("[billing/syncAutoBlockByContracts] warning: subscriberID mismatch for flat resolved by houseUUID+flat " . json_encode([
+                                "index" => $subscriber["index"],
+                                "flatId" => (int)$flatId,
+                                "houseUUID" => $subscriber["buildingUUID"],
+                                "flatNumber" => $subscriber["flatNumber"],
+                                "rbtSubscriberID" => $rbtSubscriberId,
+                                "incomingSubscriberID" => $incomingSubscriberId,
+                                "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
+                            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                        }
                     }
 
-                    if ($households->modifyFlat($flatId, [
-                            "contract" => $subscriber["contract"],
-                            "autoBlock" => $autoBlock,
-                        ]) === false) {
+                    $flatPatch = [ "autoBlock" => $autoBlock ];
+                    if ($subscriber["hasSubscriberID"]) {
+                        $flatPatch["contract"] = $subscriber["contract"];
+                    }
+
+                    if ($households->modifyFlat($flatId, $flatPatch) === false) {
                         $result["failed"]++;
                         $result["errors"][] = [
                             "index" => $subscriber["index"],
@@ -1337,31 +1237,73 @@ namespace backends\billing {
                         continue;
                     }
 
-                    $values = $customFields->getValues("flat", $flatId);
+                    if ($subscriber["hasAgreement"] || $subscriber["hasAddressText"]) {
+                        // Lazy-load customFields only when optional payload fields should be persisted.
+                        if ($customFields === null) {
+                            $customFields = loadBackend("customFields");
+                        }
 
-                    if (!is_array($values)) {
-                        $values = [];
-                    }
+                        if (!$customFields) {
+                            $result["failed"]++;
+                            $result["errors"][] = [
+                                "index" => $subscriber["index"],
+                                "error" => "cantLoadCustomFields",
+                                "flatId" => $flatId,
+                                "subscriberID" => $subscriber["subscriberID"],
+                            ];
+                            continue;
+                        }
 
-                    $values["agreement"] = $subscriber["agreement"];
-                    $values["addressText"] = $subscriber["addressText"];
+                        $values = $customFields->getValues("flat", $flatId);
 
-                    if ($customFields->modifyValues("flat", $flatId, $values) === false) {
-                        $result["failed"]++;
-                        $result["errors"][] = [
-                            "index" => $subscriber["index"],
-                            "error" => "cantModifyCustomFields",
-                            "flatId" => $flatId,
-                            "subscriberID" => $subscriber["subscriberID"],
-                        ];
-                        continue;
+                        if (!is_array($values)) {
+                            $values = [];
+                        }
+
+                        if ($subscriber["hasAgreement"]) {
+                            $values["agreement"] = $subscriber["agreement"];
+                        }
+
+                        if ($subscriber["hasAddressText"]) {
+                            $values["addressText"] = $subscriber["addressText"];
+                        }
+
+                        if ($customFields->modifyValues("flat", $flatId, $values) === false) {
+                            $result["failed"]++;
+                            $result["errors"][] = [
+                                "index" => $subscriber["index"],
+                                "error" => "cantModifyCustomFields",
+                                "flatId" => $flatId,
+                                "subscriberID" => $subscriber["subscriberID"],
+                            ];
+                            continue;
+                        }
                     }
 
                     $result["updated"]++;
                 }
             }
 
+            // Step 7: optional defaultAction for contracts that were not present in the payload.
             if ($defaultAction === "blockMissing" || $defaultAction === "unblockMissing") {
+                if ($hasSubscribersWithoutContract) {
+                    $result["missing"]["failed"]++;
+                    $result["errors"][] = [
+                        "scope" => "missing",
+                        "error" => "defaultActionRequiresSubscriberID",
+                    ];
+                    return $result;
+                }
+
+                if (!count($contracts)) {
+                    $result["missing"]["failed"]++;
+                    $result["errors"][] = [
+                        "scope" => "missing",
+                        "error" => "noContractsForDefaultAction",
+                    ];
+                    return $result;
+                }
+
                 $missingRows = $households->getFlats("notContracts", array_values($contracts));
 
                 if (!is_array($missingRows)) {
@@ -1378,6 +1320,238 @@ namespace backends\billing {
             }
 
             return $result;
+        }
+
+        private function appendSyncInvalidError(&$result, $index, $error, $context = []) {
+            // Helper: unified writer for "invalid" counters and payload details.
+            $result["invalid"]++;
+            $payload = [
+                "index" => $index,
+                "error" => $error,
+            ];
+
+            if (is_array($context) && count($context)) {
+                $payload = array_merge($payload, $context);
+            }
+
+            $result["errors"][] = $payload;
+        }
+
+        private function normalizeSyncSubscriberItem($index, $subscriber, &$result, &$pairs, &$contracts, &$hasSubscribersWithoutContract) {
+            // Helper: normalize one item and prepare pair/contract lookup structures.
+            if (!is_array($subscriber) || !array_key_exists("isActive", $subscriber)) {
+                $this->appendSyncInvalidError($result, $index, "invalidItem");
+                return false;
+            }
+
+            $isActive = $subscriber["isActive"];
+            if (!checkInt($isActive) || !in_array((int)$isActive, [ 0, 1 ], true)) {
+                $this->appendSyncInvalidError($result, $index, "invalidParams", [
+                    "subscriberID" => @$subscriber["subscriberID"],
+                    "buildingUUID" => @$subscriber["buildingUUID"],
+                    "flatNumber" => array_key_exists("flatNumber", $subscriber) ? $subscriber["flatNumber"] : @$subscriber["flat"],
+                ]);
+                return false;
+            }
+
+            $hasSubscriberID = false;
+            $subscriberID = null;
+            $contract = null;
+
+            if (array_key_exists("subscriberID", $subscriber) && $subscriber["subscriberID"] !== null && $subscriber["subscriberID"] !== "") {
+                $subscriberID = $subscriber["subscriberID"];
+                if (!checkInt($subscriberID) || !$subscriberID) {
+                    $this->appendSyncInvalidError($result, $index, "invalidSubscriberID", [
+                        "subscriberID" => @$subscriber["subscriberID"],
+                    ]);
+                    return false;
+                }
+
+                $hasSubscriberID = true;
+                $contract = (string)$subscriberID;
+                $contracts[$contract] = $contract;
+            }
+
+            $agreement = null;
+            $hasAgreement = false;
+            if (array_key_exists("agreement", $subscriber)) {
+                $agreement = $subscriber["agreement"];
+                if (!checkStr($agreement) || $agreement === "") {
+                    $this->appendSyncInvalidError($result, $index, "invalidAgreement", [
+                        "agreement" => @$subscriber["agreement"],
+                    ]);
+                    return false;
+                }
+                $hasAgreement = true;
+            }
+
+            $addressText = null;
+            $hasAddressText = false;
+            if (array_key_exists("addressText", $subscriber)) {
+                $addressText = $subscriber["addressText"];
+                if (!checkStr($addressText) || $addressText === "") {
+                    $this->appendSyncInvalidError($result, $index, "invalidAddressText", [
+                        "addressText" => @$subscriber["addressText"],
+                    ]);
+                    return false;
+                }
+                $hasAddressText = true;
+            }
+
+            $hasPair = false;
+            $buildingUUID = "";
+            $flatNumber = "";
+            $pairKey = null;
+
+            $hasBuildingUUIDField = array_key_exists("buildingUUID", $subscriber);
+            $hasFlatField = array_key_exists("flatNumber", $subscriber) || array_key_exists("flat", $subscriber);
+            $flatValue = array_key_exists("flatNumber", $subscriber) ? $subscriber["flatNumber"] : @$subscriber["flat"];
+
+            if ($hasBuildingUUIDField || $hasFlatField) {
+                if ($hasBuildingUUIDField && $hasFlatField) {
+                    $buildingUUID = $subscriber["buildingUUID"];
+                    $flatNumber = $flatValue;
+
+                    if (checkStr($buildingUUID) && $buildingUUID !== "" && checkStr($flatNumber) && $flatNumber !== "") {
+                        $hasPair = true;
+                        $pairKey = $buildingUUID . "\n" . $flatNumber;
+                        $pairs[$pairKey] = [
+                            "buildingUUID" => $buildingUUID,
+                            "flatNumber" => $flatNumber,
+                        ];
+                    } else
+                    if (!$hasSubscriberID) {
+                        $this->appendSyncInvalidError($result, $index, "invalidBuildingUUIDFlat", [
+                            "buildingUUID" => @$subscriber["buildingUUID"],
+                            "flatNumber" => $flatValue,
+                        ]);
+                        return false;
+                    }
+                } else
+                if (!$hasSubscriberID) {
+                    $this->appendSyncInvalidError($result, $index, "buildingUUIDAndFlatRequiredTogether", [
+                        "buildingUUID" => @$subscriber["buildingUUID"],
+                        "flatNumber" => $flatValue,
+                    ]);
+                    return false;
+                }
+            }
+
+            if (!$hasSubscriberID && !$hasPair) {
+                $this->appendSyncInvalidError($result, $index, "noLookupParams");
+                return false;
+            }
+
+            if (!$hasSubscriberID) {
+                $hasSubscribersWithoutContract = true;
+            }
+
+            return [
+                "index" => $index,
+                "subscriberID" => $subscriberID,
+                "hasSubscriberID" => $hasSubscriberID,
+                "contract" => $contract,
+                "agreement" => $agreement,
+                "hasAgreement" => $hasAgreement,
+                "isActive" => (int)$isActive,
+                "addressText" => $addressText,
+                "hasAddressText" => $hasAddressText,
+                "buildingUUID" => $buildingUUID,
+                "flatNumber" => $flatNumber,
+                "hasPair" => $hasPair,
+                "pairKey" => $pairKey,
+            ];
+        }
+
+        private function buildSyncFlatByPairMap($households, $pairs, &$result) {
+            // Helper: fetch and map flats by "houseUUID\nflatNumber".
+            if (!count($pairs)) {
+                return [];
+            }
+
+            $pairRows = $households->getFlats("houseUuidFlat", array_values($pairs));
+
+            if (!is_array($pairRows)) {
+                $result["failed"]++;
+                $result["errors"][] = [
+                    "error" => "cantGetFlatsByHouseUuidFlat",
+                ];
+                return [];
+            }
+
+            $flatByPair = [];
+
+            foreach ($pairRows as $row) {
+                $flatId = @$row["flatId"];
+                $flat = @$row["flat"];
+                $houseUuid = @$row["houseUuid"];
+
+                if (!checkInt($flatId) || !checkStr($flat) || $flat === "" || !checkStr($houseUuid) || $houseUuid === "") {
+                    $result["failed"]++;
+                    $result["errors"][] = [
+                        "error" => "invalidRow",
+                        "flatId" => @$row["flatId"],
+                        "houseUuid" => @$row["houseUuid"],
+                    ];
+                    continue;
+                }
+
+                $pairKey = $houseUuid . "\n" . $flat;
+
+                if (array_key_exists($pairKey, $flatByPair)) {
+                    $result["failed"]++;
+                    $result["errors"][] = [
+                        "error" => "duplicateFlatByHouseUuidFlat",
+                        "flatId" => $flatId,
+                        "houseUuid" => $houseUuid,
+                        "flatNumber" => $flat,
+                    ];
+                    continue;
+                }
+
+                $flatByPair[$pairKey] = $row;
+            }
+
+            return $flatByPair;
+        }
+
+        private function resolveSyncFallbackFlatIdByContract($households, $subscriber, &$result) {
+            // Helper: resolve single fallback flat by contract/subscriberID.
+            if (!@$subscriber["hasSubscriberID"]) {
+                return null;
+            }
+
+            $fallbackRows = $households->getFlats("contract", [ "contract" => $subscriber["contract"] ]);
+
+            if (!is_array($fallbackRows) || !count($fallbackRows)) {
+                return null;
+            }
+
+            $fallbackById = [];
+            foreach ($fallbackRows as $fallbackRow) {
+                $fallbackRowFlatId = @$fallbackRow["flatId"];
+                if (!checkInt($fallbackRowFlatId)) {
+                    continue;
+                }
+                $fallbackById[$fallbackRowFlatId] = $fallbackRow;
+            }
+
+            if (count($fallbackById) === 1) {
+                return (int)array_key_first($fallbackById);
+            }
+
+            if (count($fallbackById) > 1) {
+                $result["failed"]++;
+                $result["errors"][] = [
+                    "index" => $subscriber["index"],
+                    "error" => "multipleFlatsByContractFallback",
+                    "subscriberID" => $subscriber["subscriberID"],
+                    "contract" => $subscriber["contract"],
+                    "flatIds" => array_values(array_map("intval", array_keys($fallbackById))),
+                ];
+            }
+
+            return null;
         }
 
         private function findAddressItemMatch($rows, $uuidField, $uuid, $nameField, $name) {
