@@ -186,7 +186,11 @@ class s532 extends akuvox implements DisplayTextInterface, FreePassInterface, Ga
         int    $stunPort = 3478,
     ): void
     {
-        // With STUN enabled, the device doesn't register with the SIP server (it shows "Failed" in the web interface)
+        /*
+         * Compatibility with third-party STUN servers is not guaranteed because this device uses a legacy
+         * STUN implementation. For reliable operation, use a self-hosted "coturn" instance with
+         * "no-stun-backward-compatibility" disabled.
+         */
         $encodedPassword = base64_encode($password);
         parent::configureSip($login, $encodedPassword, $server, $port, $stunEnabled, $stunServer, $stunPort);
     }
