@@ -235,6 +235,8 @@
                     echo "****************************************\n";
                     echo "*       !!! MAINTENANCE MODE !!!       *\n";
                     echo "****************************************\n\n";
+                    echo "To exit maintenance mode, run:\n";
+                    echo "php /opt/rbt/server/cli.php --exit-maintenance-mode\n\n";
                     $script_result = "maintenance mode";
                     exit(0);
                 }
