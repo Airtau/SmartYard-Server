@@ -1668,7 +1668,7 @@
                     return false;
                 }
 
-                if (!in_array($this->login, $issue["assigned"])) {
+                if (!in_array($this->login, $issue["assigned"] ?? [])) {
                     $issue["assigned"] = [ $this->login ];
                     return $this->modifyIssue($issue);
                 }
