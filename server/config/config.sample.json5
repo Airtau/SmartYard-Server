@@ -74,8 +74,8 @@
     "backends": {
         "authentication": {
             "backend": "internal",
-            "2faName": "SmartYard",
-            "2faTitle": "RBT",
+            "two_fa_name": "SmartYard",
+            "two_fa_title": "RBT",
             "max_allowed_tokens": 15,
             "token_idle_ttl": 3600,
         },

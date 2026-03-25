@@ -8,6 +8,7 @@
 ```
 
 ```diff
++ 2faName and 2faTitle (in config) renamed to two_fa_name and two_fa_title
 + encrypted password authentications (requires "cli.php --keys" and pubKey in client's config)
 + tt workflow new method api.call("GET|POST|PUT|DELETE", "api", "method", "refresh", "data")
 + expanded RODOS support, the entire line should work, from 1 to 16 outputs
