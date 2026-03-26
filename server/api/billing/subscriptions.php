@@ -1,7 +1,7 @@
 <?php
 
     /**
-     * @api {get} /api/billing/subscriptions synchronize active contracts for auto-blocking
+     * @api {post} /api/billing/subscriptions synchronize active contracts for auto-blocking
      *
      * @apiVersion 1.0.0
      *
@@ -11,7 +11,7 @@
      * @apiHeader {String} Authorization authentication token
      *
      * @apiParam {Object[]} subscribers list of subscribers for auto-block synchronization
-        * @apiParam {Boolean} subscribers.isActive contract state (`true` => autoBlock=0, `false` => autoBlock=1)
+        * @apiParam {Number|Boolean} subscribers.isActive contract state (`1|true` => autoBlock=0, `0|false` => autoBlock=1)
         * @apiParam {Number} [subscribers.subscriberID] subscriber ID (contract). Required if `buildingUUID+flatNumber/flat` pair is not provided
         * @apiParam {String} [subscribers.buildingUUID] building UUID. Must be provided together with `flatNumber` or `flat` if `subscriberID` is omitted
         * @apiParam {String} [subscribers.flatNumber] flat number. Pair field for `buildingUUID`
@@ -24,7 +24,7 @@
      * @apiSuccess {Number} subscriptions.invalid invalid subscriber items
      * @apiSuccess {Number} subscriptions.notFound subscribers not matched to any flat
      * @apiSuccess {Number} subscriptions.failed internal processing errors count
-     * @apiSuccess {String} subscriptions.defaultAction default action for missing contracts (`skipMissing|blockMissing|unblockMissing`)
+     * @apiSuccess {String} subscriptions.defaultAction default action for missing contracts (`skipMissing` in current implementation)
      * @apiSuccess {Object} subscriptions.missing result for contracts not present in request
      * @apiSuccess {Number} subscriptions.missing.updated count of missing contracts with updated autoBlock
      * @apiSuccess {Number} subscriptions.missing.unchanged count of missing contracts left unchanged
