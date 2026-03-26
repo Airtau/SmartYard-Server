@@ -10,13 +10,14 @@
      *
      * @apiHeader {String} Authorization authentication token
      *
-     * @apiParam {Object[]} subscribers list of subscribers with active contracts
-        * @apiParam {Number} subscribers.subscriberID subscriber ID
-        * @apiParam {String} subscribers.agreement agreement number
-        * @apiParam {Boolean} subscribers.isActive is active contract or not
-        * @apiParam {String} subscribers.addressText address text
-        * @apiParam {String} subscribers.buildingUUID building UUID
-        * @apiParam {String} subscribers.flatNumber flat number
+     * @apiParam {Object[]} subscribers list of subscribers for auto-block synchronization
+        * @apiParam {Boolean} subscribers.isActive contract state (`true` => autoBlock=0, `false` => autoBlock=1)
+        * @apiParam {Number} [subscribers.subscriberID] subscriber ID (contract). Required if `buildingUUID+flatNumber/flat` pair is not provided
+        * @apiParam {String} [subscribers.buildingUUID] building UUID. Must be provided together with `flatNumber` or `flat` if `subscriberID` is omitted
+        * @apiParam {String} [subscribers.flatNumber] flat number. Pair field for `buildingUUID`
+        * @apiParam {String} [subscribers.flat] alias for `flatNumber`
+        * @apiParam {String} [subscribers.agreement] agreement number (optional custom field update)
+        * @apiParam {String} [subscribers.addressText] address text (optional custom field update)
      * @apiSuccess {Object} subscriptions synchronization result
      * @apiSuccess {Number} subscriptions.processed total processed subscriber items
      * @apiSuccess {Number} subscriptions.updated successfully updated flats
@@ -61,44 +62,42 @@
                     $_subscribers = [];
 
                     foreach ($params['subscribers'] as $index => $subscriber) {
-                        if (!array_key_exists("subscriberID", $subscriber) || !is_numeric($subscriber['subscriberID'])) {
-                            return "subscriberID is required for subscriber at index " . $index;
+                        if (!is_array($subscriber)) {
+                            return "subscriber item must be object at index " . $index;
                         }
-                        $subscriberID = intval($subscriber['subscriberID']);
-                        
-                        if (!array_key_exists("agreement", $subscriber) || !is_string($subscriber['agreement'])) {
-                            return "agreement is required for subscriber at index " . $index;
-                        }
-                        $agreement = $subscriber['agreement'];
 
-                        if (!array_key_exists("isActive", $subscriber) || !is_bool($subscriber['isActive'])) {
+                        if (!array_key_exists("isActive", $subscriber)) {
                             return "isActive is required for subscriber at index " . $index;
                         }
-                        $isActive = $subscriber['isActive'];
 
-                        if (!array_key_exists("addressText", $subscriber) || !is_string($subscriber['addressText'])) {
-                            return "addressText is required for subscriber at index " . $index;
-                        }
-                        $addressText = $subscriber['addressText'];
-
-                        if (!array_key_exists("buildingUUID", $subscriber) || !is_string($subscriber['buildingUUID'])) {
-                            return "buildingUUID is required for subscriber at index " . $index;
-                        }
-                        $buildingUUID = $subscriber['buildingUUID'];
-
-                        if (!array_key_exists("flatNumber", $subscriber) || !is_string($subscriber['flatNumber'])) {
-                            return "flatNumber is required for subscriber at index " . $index;
-                        }
-                        $flatNumber = $subscriber['flatNumber'];
-
-                        $_subscribers[] = [
-                            "subscriberID" => $subscriberID,
-                            "agreement" => $agreement,
-                            "isActive" => $isActive,
-                            "addressText" => $addressText,
-                            "buildingUUID" => $buildingUUID,
-                            "flatNumber" => $flatNumber
+                        $item = [
+                            "isActive" => $subscriber["isActive"],
                         ];
+
+                        if (array_key_exists("subscriberID", $subscriber)) {
+                            $item["subscriberID"] = $subscriber["subscriberID"];
+                        }
+
+                        if (array_key_exists("agreement", $subscriber)) {
+                            $item["agreement"] = $subscriber["agreement"];
+                        }
+
+                        if (array_key_exists("addressText", $subscriber)) {
+                            $item["addressText"] = $subscriber["addressText"];
+                        }
+
+                        if (array_key_exists("buildingUUID", $subscriber)) {
+                            $item["buildingUUID"] = $subscriber["buildingUUID"];
+                        }
+
+                        if (array_key_exists("flatNumber", $subscriber)) {
+                            $item["flatNumber"] = $subscriber["flatNumber"];
+                        } else
+                        if (array_key_exists("flat", $subscriber)) {
+                            $item["flatNumber"] = $subscriber["flat"];
+                        }
+
+                        $_subscribers[] = $item;
                     }
 
                     $response = $billing->syncAutoBlockByContracts($_subscribers, "skipMissing");

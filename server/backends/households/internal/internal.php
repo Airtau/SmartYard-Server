@@ -129,6 +129,10 @@
             function getFlats($by, $params) {
                 $q = "";
                 $p = [];
+
+                // Attach house UUID to the result ONLY if the search is performed by house UUID and flat number, 
+                // because in this case the house UUID is already known and can be useful for further processing without additional queries
+                // By default, house UUID is not attached to the result of getFlat() method 
                 $attachHouseUuid = false;
 
                 switch ($by) {
