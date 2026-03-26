@@ -21,7 +21,9 @@
     },
 
     allLoaded: function () {
-        modules.mkb.refreshInbox();
+        if (parseInt(myself.uid) && AVAIL("mkb")) {
+            modules.mkb.refreshInbox();
+        }
     },
 
     mdr: function (str) {
