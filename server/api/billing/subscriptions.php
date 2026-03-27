@@ -19,6 +19,9 @@
         * @apiParam {String} [subscribers.addressText] address text (optional custom field update, persisted when the flat is resolved by `buildingUUID+flatNumber` or by unique `subscriberID`)
         * @apiParam {String} [subscribers.login] subscriber login to store in flat
         * @apiParam {String} [subscribers.password] subscriber password to store in flat
+        * @apiParam {Object[]} [subscribers.phones] phone numbers to import into RBT for this flat
+        * @apiParam {String} subscribers.phones.phone mobile phone number
+        * @apiParam {String="owner","regular"} subscribers.phones.type desired role for this flat when the subscriber is added to this apartment; existing links in this flat are left unchanged
      * @apiSuccess {Object} subscriptions synchronization result
      * @apiSuccess {Number} subscriptions.processed total processed subscriber items
      * @apiSuccess {Number} subscriptions.updated successfully updated flats
@@ -93,6 +96,10 @@
 
                         if (array_key_exists("password", $subscriber)) {
                             $item["password"] = $subscriber["password"];
+                        }
+
+                        if (array_key_exists("phones", $subscriber)) {
+                            $item["phones"] = $subscriber["phones"];
                         }
 
                         if (array_key_exists("buildingUUID", $subscriber)) {

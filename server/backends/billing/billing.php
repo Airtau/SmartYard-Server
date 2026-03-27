@@ -1199,6 +1199,7 @@ namespace backends\billing {
          * - addressText (optional, string, stored to custom field addressText only if provided and the flat is resolved either by buildingUUID + flatNumber or by unique subscriberID lookup)
          * - login (optional, string, stored to flat.login)
          * - password (optional, string, stored to flat.password)
+         * - phones (optional, array of objects: phone + type=owner|regular, linked to flat in RBT)
          * @param $defaultAction string
          * values:
          * - "skipMissing" (default): do not change subscribers not in list
@@ -1493,6 +1494,79 @@ namespace backends\billing {
                 $hasPassword = true;
             }
 
+            $phones = [];
+            $hasPhones = false;
+            if (array_key_exists("phones", $subscriber)) {
+                if (!is_array($subscriber["phones"])) {
+                    $this->appendSyncInvalidError($result, $index, "invalidPhones");
+                    return false;
+                }
+
+                $normalizedPhones = [];
+                foreach ($subscriber["phones"] as $phoneIndex => $phoneItem) {
+                    if (!is_array($phoneItem)) {
+                        $this->appendSyncInvalidError($result, $index, "invalidPhoneItem", [
+                            "phoneIndex" => $phoneIndex,
+                        ]);
+                        return false;
+                    }
+
+                    if (!array_key_exists("phone", $phoneItem)) {
+                        $this->appendSyncInvalidError($result, $index, "phoneRequired", [
+                            "phoneIndex" => $phoneIndex,
+                        ]);
+                        return false;
+                    }
+
+                    if (!array_key_exists("type", $phoneItem)) {
+                        $this->appendSyncInvalidError($result, $index, "phoneTypeRequired", [
+                            "phoneIndex" => $phoneIndex,
+                            "phone" => @$phoneItem["phone"],
+                        ]);
+                        return false;
+                    }
+
+                    $phone = $this->normalizeSyncSubscriberPhoneValue($phoneItem["phone"]);
+                    if ($phone === null) {
+                        $this->appendSyncInvalidError($result, $index, "invalidPhone", [
+                            "phoneIndex" => $phoneIndex,
+                            "phone" => @$phoneItem["phone"],
+                        ]);
+                        return false;
+                    }
+
+                    $type = $phoneItem["type"];
+                    if (!is_string($type) || !in_array($type, [ "owner", "regular" ], true)) {
+                        $this->appendSyncInvalidError($result, $index, "invalidPhoneType", [
+                            "phoneIndex" => $phoneIndex,
+                            "phone" => $phone,
+                            "type" => @$phoneItem["type"],
+                        ]);
+                        return false;
+                    }
+
+                    if (array_key_exists($phone, $normalizedPhones)) {
+                        if ($normalizedPhones[$phone]["type"] !== $type) {
+                            $this->appendSyncInvalidError($result, $index, "duplicatePhoneWithDifferentType", [
+                                "phone" => $phone,
+                            ]);
+                            return false;
+                        }
+
+                        continue;
+                    }
+
+                    $normalizedPhones[$phone] = [
+                        "phone" => $phone,
+                        "type" => $type,
+                        "isOwner" => ($type === "owner"),
+                    ];
+                }
+
+                $phones = array_values($normalizedPhones);
+                $hasPhones = true;
+            }
+
             $hasPair = false;
             $buildingUUID = "";
             $flatNumber = "";
@@ -1555,11 +1629,133 @@ namespace backends\billing {
                 "hasLogin" => $hasLogin,
                 "password" => $password,
                 "hasPassword" => $hasPassword,
+                "phones" => $phones,
+                "hasPhones" => $hasPhones,
                 "buildingUUID" => $buildingUUID,
                 "flatNumber" => $flatNumber,
                 "hasPair" => $hasPair,
                 "pairKey" => $pairKey,
             ];
+        }
+
+        private function normalizeSyncSubscriberPhoneValue($phone) {
+            if (!is_scalar($phone)) {
+                return null;
+            }
+
+            $phone = preg_replace('/\D+/', '', trim((string)$phone));
+            if ($phone === null || $phone === "") {
+                return null;
+            }
+
+            if (strlen($phone) == 10) {
+                $phone = "7" . $phone;
+            } else
+            if (strlen($phone) == 11 && $phone[0] == "8") {
+                $phone = "7" . substr($phone, 1);
+            }
+
+            if (!preg_match('/^[0-9]{10,15}$/', $phone)) {
+                return null;
+            }
+
+            return $phone;
+        }
+
+        private function hasSyncPhoneInFlat($households, $flatId, $phone, &$error = null) {
+            $flatSubscribers = $households->getSubscribers("flatId", $flatId, [ "noDetail" ]);
+
+            if ($flatSubscribers === false) {
+                $error = "cantGetFlatSubscribers";
+                return false;
+            }
+
+            foreach ($flatSubscribers as $flatSubscriber) {
+                $flatSubscriberPhone = $this->normalizeSyncSubscriberPhoneValue(@$flatSubscriber["mobile"]);
+
+                if ($flatSubscriberPhone !== null && $flatSubscriberPhone === $phone) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private function appendSyncPhoneRuntimeError(&$result, $subscriber, $flatId, $phoneItem, $errorCode, $details = null) {
+            $result["failed"]++;
+
+            $error = [
+                "index" => $subscriber["index"],
+                "error" => $errorCode,
+                "flatId" => $flatId,
+                "subscriberID" => $subscriber["subscriberID"],
+                "phone" => $phoneItem["phone"],
+                "phoneType" => $phoneItem["type"],
+            ];
+
+            if ($details !== null && $details !== "") {
+                $error["details"] = $details;
+            }
+
+            $result["errors"][] = $error;
+        }
+
+        private function applySyncPhoneToFlat($households, $flatId, $phoneItem, $subscriber, &$result) {
+            $lookupError = null;
+            $subscriberAlreadyInFlat = $this->hasSyncPhoneInFlat($households, $flatId, $phoneItem["phone"], $lookupError);
+
+            if ($lookupError !== null) {
+                $this->appendSyncPhoneRuntimeError($result, $subscriber, $flatId, $phoneItem, $lookupError ?: "cantSyncSubscriberPhone");
+                return false;
+            }
+
+            if ($subscriberAlreadyInFlat) {
+                // Existing subscriber link for this flat is intentionally left untouched.
+                return true;
+            }
+
+            $subscriberId = $households->addSubscriber($phoneItem["phone"], '', '', '', $flatId);
+
+            if ($subscriberId === false) {
+                $this->appendSyncPhoneRuntimeError($result, $subscriber, $flatId, $phoneItem, "cantAddSubscriberPhone", getLastError());
+                return false;
+            }
+
+            if ($phoneItem["isOwner"]) {
+                $createdSubscriber = $households->getSubscribers("id", (int)$subscriberId);
+
+                if ($createdSubscriber === false || !is_array($createdSubscriber) || !count($createdSubscriber)) {
+                    $this->appendSyncPhoneRuntimeError($result, $subscriber, $flatId, $phoneItem, "cantGetSubscriberByIdAfterAdd");
+                    return false;
+                }
+
+                $createdSubscriber = $createdSubscriber[0];
+                $createdFlats = is_array(@$createdSubscriber["flats"]) ? $createdSubscriber["flats"] : [];
+
+                $subscriberFlatsPatch = [];
+                foreach ($createdFlats as $createdFlat) {
+                    $createdFlatId = (int)@$createdFlat["flatId"];
+
+                    if ($createdFlatId <= 0) {
+                        continue;
+                    }
+
+                    $subscriberFlatsPatch[$createdFlatId] = [
+                        "role" => ((int)@$createdFlat["role"] == 0),
+                    ];
+                }
+
+                $subscriberFlatsPatch[(int)$flatId] = [
+                    "role" => true,
+                ];
+
+                if ($households->setSubscriberFlats((int)$subscriberId, $subscriberFlatsPatch) === false) {
+                    $this->appendSyncPhoneRuntimeError($result, $subscriber, $flatId, $phoneItem, "cantSetOwnerRoleForAddedSubscriberFlat", getLastError());
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private function applySyncSubscriberToFlat($households, &$customFields, $flatId, $subscriber, &$result, $options = []) {
@@ -1652,6 +1848,14 @@ namespace backends\billing {
                         "subscriberID" => $subscriber["subscriberID"],
                     ];
                     return false;
+                }
+            }
+
+            if ($subscriber["hasPhones"]) {
+                foreach ($subscriber["phones"] as $phoneItem) {
+                    if (!$this->applySyncPhoneToFlat($households, $flatId, $phoneItem, $subscriber, $result)) {
+                        return false;
+                    }
                 }
             }
 
