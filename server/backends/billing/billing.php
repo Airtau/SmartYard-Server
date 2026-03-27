@@ -1076,6 +1076,8 @@ namespace backends\billing {
          *   - both buildingUUID and flatNumber/flat
          * - agreement (optional, string, stored to custom field agreement only if provided)
          * - addressText (optional, string, stored to custom field addressText only if provided)
+         * - login (optional, string, stored to flat.login)
+         * - password (optional, string, stored to flat.password)
          * @param $defaultAction string
          * values:
          * - "skipMissing" (default): do not change subscribers not in list
@@ -1153,7 +1155,6 @@ namespace backends\billing {
                         $fallbackFlatId = $this->resolveSyncFallbackFlatIdByContract($households, $subscriber, $result);
 
                         if ($fallbackFlatId !== null) {
-                            // Step 6a: fallback mode updates only autoBlock.
                             $autoBlock = $subscriber["isActive"] ? 0 : 1;
 
                             error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flat " . json_encode([
@@ -1163,15 +1164,12 @@ namespace backends\billing {
                                 "targetAutoBlock" => $autoBlock,
                             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-                            if ($households->modifyFlat($fallbackFlatId, [ "autoBlock" => $autoBlock ]) === false) {
-                                $result["failed"]++;
-                                $result["errors"][] = [
-                                    "index" => $subscriber["index"],
-                                    "error" => "cantModifyFlatFallbackByContract",
-                                    "flatId" => $fallbackFlatId,
-                                    "subscriberID" => $subscriber["subscriberID"],
-                                    "targetAutoBlock" => $autoBlock,
-                                ];
+                            if (!$this->applySyncSubscriberToFlat($households, $customFields, $fallbackFlatId, $subscriber, $result, [
+                                "cantModifyFlatError" => "cantModifyFlatFallbackByContract",
+                                "includeTargetAutoBlock" => true,
+                                "updateContract" => false,
+                                "updateCustomFields" => false,
+                            ])) {
                                 continue;
                             }
 
@@ -1202,8 +1200,7 @@ namespace backends\billing {
                         continue;
                     }
 
-                    // Step 6b: primary mode updates autoBlock and (optionally) contract/custom fields.
-                    $autoBlock = $subscriber["isActive"] ? 0 : 1;
+                    // Step 6b: primary mode updates flat state, contract, credentials and custom fields.
                     if ($subscriber["hasSubscriberID"]) {
                         $rbtSubscriberId = trim((string)@$flat["contract"]);
                         $incomingSubscriberId = trim((string)$subscriber["contract"]);
@@ -1221,63 +1218,13 @@ namespace backends\billing {
                         }
                     }
 
-                    $flatPatch = [ "autoBlock" => $autoBlock ];
-                    if ($subscriber["hasSubscriberID"]) {
-                        $flatPatch["contract"] = $subscriber["contract"];
-                    }
-
-                    if ($households->modifyFlat($flatId, $flatPatch) === false) {
-                        $result["failed"]++;
-                        $result["errors"][] = [
-                            "index" => $subscriber["index"],
-                            "error" => "cantModifyFlat",
-                            "flatId" => $flatId,
-                            "subscriberID" => $subscriber["subscriberID"],
-                        ];
+                    if (!$this->applySyncSubscriberToFlat($households, $customFields, $flatId, $subscriber, $result, [
+                        "cantModifyFlatError" => "cantModifyFlat",
+                        "includeTargetAutoBlock" => false,
+                        "updateContract" => $subscriber["hasSubscriberID"],
+                        "updateCustomFields" => true,
+                    ])) {
                         continue;
-                    }
-
-                    if ($subscriber["hasAgreement"] || $subscriber["hasAddressText"]) {
-                        // Lazy-load customFields only when optional payload fields should be persisted.
-                        if ($customFields === null) {
-                            $customFields = loadBackend("customFields");
-                        }
-
-                        if (!$customFields) {
-                            $result["failed"]++;
-                            $result["errors"][] = [
-                                "index" => $subscriber["index"],
-                                "error" => "cantLoadCustomFields",
-                                "flatId" => $flatId,
-                                "subscriberID" => $subscriber["subscriberID"],
-                            ];
-                            continue;
-                        }
-
-                        $values = $customFields->getValues("flat", $flatId);
-
-                        if (!is_array($values)) {
-                            $values = [];
-                        }
-
-                        if ($subscriber["hasAgreement"]) {
-                            $values["agreement"] = $subscriber["agreement"];
-                        }
-
-                        if ($subscriber["hasAddressText"]) {
-                            $values["addressText"] = $subscriber["addressText"];
-                        }
-
-                        if ($customFields->modifyValues("flat", $flatId, $values) === false) {
-                            $result["failed"]++;
-                            $result["errors"][] = [
-                                "index" => $subscriber["index"],
-                                "error" => "cantModifyCustomFields",
-                                "flatId" => $flatId,
-                                "subscriberID" => $subscriber["subscriberID"],
-                            ];
-                            continue;
-                        }
                     }
 
                     $result["updated"]++;
@@ -1398,6 +1345,30 @@ namespace backends\billing {
                 $hasAddressText = true;
             }
 
+            $login = null;
+            $hasLogin = false;
+            if (array_key_exists("login", $subscriber)) {
+                $login = $subscriber["login"];
+                if (!checkStr($login)) {
+                    $this->appendSyncInvalidError($result, $index, "invalidLogin", [
+                        "login" => @$subscriber["login"],
+                    ]);
+                    return false;
+                }
+                $hasLogin = true;
+            }
+
+            $password = null;
+            $hasPassword = false;
+            if (array_key_exists("password", $subscriber)) {
+                $password = $subscriber["password"];
+                if (!checkStr($password)) {
+                    $this->appendSyncInvalidError($result, $index, "invalidPassword");
+                    return false;
+                }
+                $hasPassword = true;
+            }
+
             $hasPair = false;
             $buildingUUID = "";
             $flatNumber = "";
@@ -1456,11 +1427,111 @@ namespace backends\billing {
                 "isActive" => (int)$isActive,
                 "addressText" => $addressText,
                 "hasAddressText" => $hasAddressText,
+                "login" => $login,
+                "hasLogin" => $hasLogin,
+                "password" => $password,
+                "hasPassword" => $hasPassword,
                 "buildingUUID" => $buildingUUID,
                 "flatNumber" => $flatNumber,
                 "hasPair" => $hasPair,
                 "pairKey" => $pairKey,
             ];
+        }
+
+        private function applySyncSubscriberToFlat($households, &$customFields, $flatId, $subscriber, &$result, $options = []) {
+            $autoBlock = $subscriber["isActive"] ? 0 : 1;
+            $flatPatch = [
+                "autoBlock" => $autoBlock,
+            ];
+
+            if (@$options["updateContract"] && $subscriber["hasSubscriberID"]) {
+                $flatPatch["contract"] = $subscriber["contract"];
+            }
+
+            if ($subscriber["hasLogin"] || $subscriber["hasPassword"]) {
+                if ($subscriber["hasLogin"] && $subscriber["hasPassword"]) {
+                    $flatPatch["login"] = $subscriber["login"];
+                    $flatPatch["password"] = $subscriber["password"];
+                } else {
+                    $currentFlat = $households->getFlat($flatId);
+
+                    if (!$currentFlat) {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $subscriber["index"],
+                            "error" => "cantGetFlat",
+                            "flatId" => $flatId,
+                            "subscriberID" => $subscriber["subscriberID"],
+                        ];
+                        return false;
+                    }
+
+                    $flatPatch["login"] = $subscriber["hasLogin"] ? $subscriber["login"] : @$currentFlat["login"];
+                    $flatPatch["password"] = $subscriber["hasPassword"] ? $subscriber["password"] : @$currentFlat["password"];
+                }
+            }
+
+            if ($households->modifyFlat($flatId, $flatPatch) === false) {
+                $result["failed"]++;
+                $error = [
+                    "index" => $subscriber["index"],
+                    "error" => @$options["cantModifyFlatError"] ?: "cantModifyFlat",
+                    "flatId" => $flatId,
+                    "subscriberID" => $subscriber["subscriberID"],
+                ];
+
+                if (@$options["includeTargetAutoBlock"]) {
+                    $error["targetAutoBlock"] = $autoBlock;
+                }
+
+                $result["errors"][] = $error;
+                return false;
+            }
+
+            if (@$options["updateCustomFields"] && ($subscriber["hasAgreement"] || $subscriber["hasAddressText"])) {
+                // Lazy-load customFields only when optional payload fields should be persisted.
+                if ($customFields === null) {
+                    $customFields = loadBackend("customFields");
+                }
+
+                if (!$customFields) {
+                    $result["failed"]++;
+                    $result["errors"][] = [
+                        "index" => $subscriber["index"],
+                        "error" => "cantLoadCustomFields",
+                        "flatId" => $flatId,
+                        "subscriberID" => $subscriber["subscriberID"],
+                    ];
+                    return false;
+                }
+
+                $values = $customFields->getValues("flat", $flatId);
+
+                if (!is_array($values)) {
+                    $values = [];
+                }
+
+                if ($subscriber["hasAgreement"]) {
+                    $values["agreement"] = $subscriber["agreement"];
+                }
+
+                if ($subscriber["hasAddressText"]) {
+                    $values["addressText"] = $subscriber["addressText"];
+                }
+
+                if ($customFields->modifyValues("flat", $flatId, $values) === false) {
+                    $result["failed"]++;
+                    $result["errors"][] = [
+                        "index" => $subscriber["index"],
+                        "error" => "cantModifyCustomFields",
+                        "flatId" => $flatId,
+                        "subscriberID" => $subscriber["subscriberID"],
+                    ];
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private function buildSyncFlatByPairMap($households, $pairs, &$result) {

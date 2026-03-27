@@ -18,6 +18,8 @@
         * @apiParam {String} [subscribers.flat] alias for `flatNumber`
         * @apiParam {String} [subscribers.agreement] agreement number (optional custom field update)
         * @apiParam {String} [subscribers.addressText] address text (optional custom field update)
+        * @apiParam {String} [subscribers.login] subscriber login to store in flat
+        * @apiParam {String} [subscribers.password] subscriber password to store in flat
      * @apiSuccess {Object} subscriptions synchronization result
      * @apiSuccess {Number} subscriptions.processed total processed subscriber items
      * @apiSuccess {Number} subscriptions.updated successfully updated flats
@@ -84,6 +86,14 @@
 
                         if (array_key_exists("addressText", $subscriber)) {
                             $item["addressText"] = $subscriber["addressText"];
+                        }
+
+                        if (array_key_exists("login", $subscriber)) {
+                            $item["login"] = $subscriber["login"];
+                        }
+
+                        if (array_key_exists("password", $subscriber)) {
+                            $item["password"] = $subscriber["password"];
                         }
 
                         if (array_key_exists("buildingUUID", $subscriber)) {
