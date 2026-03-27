@@ -1195,8 +1195,8 @@ namespace backends\billing {
          *   at least one lookup option is required:
          *   - subscriberID
          *   - both buildingUUID and flatNumber
-         * - agreement (optional, string, stored to custom field agreement only if provided)
-         * - addressText (optional, string, stored to custom field addressText only if provided)
+         * - agreement (optional, string, stored to custom field agreement only if provided and the flat is resolved either by buildingUUID + flatNumber or by unique subscriberID lookup)
+         * - addressText (optional, string, stored to custom field addressText only if provided and the flat is resolved either by buildingUUID + flatNumber or by unique subscriberID lookup)
          * - login (optional, string, stored to flat.login)
          * - password (optional, string, stored to flat.password)
          * @param $defaultAction string
@@ -1276,20 +1276,23 @@ namespace backends\billing {
                         $fallbackFlatId = $this->resolveSyncFallbackFlatIdByContract($households, $subscriber, $result);
 
                         if ($fallbackFlatId !== null) {
+                            $resolvedByContractOnly = !$subscriber["hasPair"];
                             $autoBlock = $subscriber["isActive"] ? 0 : 1;
 
-                            error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flatNumber " . json_encode([
-                                "index" => $subscriber["index"],
-                                "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
-                                "resolvedFlatId" => $fallbackFlatId,
-                                "targetAutoBlock" => $autoBlock,
-                            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                            if (!$resolvedByContractOnly) {
+                                error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flatNumber " . json_encode([
+                                    "index" => $subscriber["index"],
+                                    "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
+                                    "resolvedFlatId" => $fallbackFlatId,
+                                    "targetAutoBlock" => $autoBlock,
+                                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                            }
 
                             if (!$this->applySyncSubscriberToFlat($households, $customFields, $fallbackFlatId, $subscriber, $result, [
-                                "cantModifyFlatError" => "cantModifyFlatFallbackByContract",
-                                "includeTargetAutoBlock" => true,
-                                "updateContract" => false,
-                                "updateCustomFields" => false,
+                                "cantModifyFlatError" => $resolvedByContractOnly ? "cantModifyFlat" : "cantModifyFlatFallbackByContract",
+                                "includeTargetAutoBlock" => !$resolvedByContractOnly,
+                                "updateContract" => $resolvedByContractOnly && $subscriber["hasSubscriberID"],
+                                "updateCustomFields" => $resolvedByContractOnly,
                             ])) {
                                 continue;
                             }
