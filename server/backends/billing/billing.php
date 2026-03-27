@@ -207,7 +207,10 @@ namespace backends\billing {
          * - services (optional) array of:
          *   "internet","iptv","ctv","phone","cctv","domophone","gsm"
          * - flats (optional) array of items:
-         *   - flat or flatNumber (required)
+         *   - flatNumber (required, string)
+         *   - floor (optional)
+         * - flatRanges (optional) array of numeric ranges:
+         *   - fromFlat/toFlat (required, positive integers)
          *   - floor (optional)
          *
          * @return boolean|array
@@ -971,18 +974,12 @@ namespace backends\billing {
                     }
                 }
 
-                if (array_key_exists("flats", $item)) {
-                    if (!is_array($item["flats"])) {
-                        $result["invalid"]++;
-                        $result["errors"][] = [
-                            "index" => $index,
-                            "error" => "invalidFlats",
-                            "houseId" => $houseId,
-                            "houseUuid" => $houseUuid,
-                        ];
-                        continue;
-                    }
+                $flatItems = $this->normalizeImportAddressFlatItems($item, $index, $houseId, $houseUuid, $result);
+                if ($flatItems === false) {
+                    continue;
+                }
 
+                if ($flatItems !== null) {
                     if (!array_key_exists($houseId, $cache["flats"])) {
                         $cache["flats"][$houseId] = $households->getFlats("houseId", $houseId);
 
@@ -1005,32 +1002,9 @@ namespace backends\billing {
                         }
                     }
 
-                    foreach ($item["flats"] as $flatIndex => $flatItem) {
-                        $flatNumber = null;
-                        $floor = 0;
-
-                        if (is_array($flatItem)) {
-                            $flatNumber = array_key_exists("flat", $flatItem) ? $flatItem["flat"] : @$flatItem["flatNumber"];
-                            $floor = array_key_exists("floor", $flatItem) ? $flatItem["floor"] : 0;
-                        } else {
-                            $flatNumber = $flatItem;
-                        }
-
-                        if (!checkStr($flatNumber) || $flatNumber === "") {
-                            $result["failed"]++;
-                            $result["errors"][] = [
-                                "index" => $index,
-                                "flatIndex" => $flatIndex,
-                                "error" => "invalidFlat",
-                                "houseId" => $houseId,
-                                "houseUuid" => $houseUuid,
-                            ];
-                            continue;
-                        }
-
-                        if (!checkInt($floor)) {
-                            $floor = 0;
-                        }
+                    foreach ($flatItems as $flatIndex => $flatItem) {
+                        $flatNumber = $flatItem["flatNumber"];
+                        $floor = $flatItem["floor"];
 
                         if (array_key_exists($flatNumber, $houseFlatNumbers)) {
                             $result["skipped"]["flats"]++;
@@ -1063,6 +1037,153 @@ namespace backends\billing {
             return $result;
         }
 
+        private function normalizeImportAddressFlatItems($item, $index, $houseId, $houseUuid, &$result) {
+            $hasFlats = array_key_exists("flats", $item);
+            $hasFlatRanges = array_key_exists("flatRanges", $item);
+
+            if (!$hasFlats && !$hasFlatRanges) {
+                return null;
+            }
+
+            if ($hasFlats && !is_array($item["flats"])) {
+                $result["invalid"]++;
+                $result["errors"][] = [
+                    "index" => $index,
+                    "error" => "invalidFlats",
+                    "houseId" => $houseId,
+                    "houseUuid" => $houseUuid,
+                ];
+                return false;
+            }
+
+            if ($hasFlatRanges && !is_array($item["flatRanges"])) {
+                $result["invalid"]++;
+                $result["errors"][] = [
+                    "index" => $index,
+                    "error" => "invalidFlatRanges",
+                    "houseId" => $houseId,
+                    "houseUuid" => $houseUuid,
+                ];
+                return false;
+            }
+
+            $flatItems = [];
+
+            if ($hasFlats) {
+                foreach ($item["flats"] as $flatIndex => $flatItem) {
+                    $normalizedFlat = $this->normalizeImportAddressFlatItem($flatItem);
+
+                    if ($normalizedFlat === false) {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $index,
+                            "flatIndex" => $flatIndex,
+                            "error" => "invalidFlat",
+                            "houseId" => $houseId,
+                            "houseUuid" => $houseUuid,
+                        ];
+                        continue;
+                    }
+
+                    $flatItems[] = $normalizedFlat;
+                }
+            }
+
+            if ($hasFlatRanges) {
+                foreach ($item["flatRanges"] as $rangeIndex => $rangeItem) {
+                    $expandedRange = $this->expandImportAddressFlatRange($rangeItem);
+
+                    if ($expandedRange === false) {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $index,
+                            "flatRangeIndex" => $rangeIndex,
+                            "error" => "invalidFlatRange",
+                            "houseId" => $houseId,
+                            "houseUuid" => $houseUuid,
+                        ];
+                        continue;
+                    }
+
+                    foreach ($expandedRange as $expandedFlat) {
+                        $flatItems[] = $expandedFlat;
+                    }
+                }
+            }
+
+            return $flatItems;
+        }
+
+        private function normalizeImportAddressFlatItem($flatItem) {
+            if (!is_array($flatItem)) {
+                return false;
+            }
+
+            $flatNumber = @$flatItem["flatNumber"];
+            $floor = array_key_exists("floor", $flatItem) ? $flatItem["floor"] : 0;
+
+            if (!checkStr($flatNumber) || $flatNumber === "") {
+                return false;
+            }
+
+            if (!checkInt($floor)) {
+                $floor = 0;
+            }
+
+            return [
+                "flatNumber" => $flatNumber,
+                "floor" => (int)$floor,
+            ];
+        }
+
+        private function expandImportAddressFlatRange($rangeItem) {
+            $from = null;
+            $to = null;
+            $floor = 0;
+
+            if (is_array($rangeItem)) {
+                $from = @$rangeItem["fromFlat"];
+                $to = @$rangeItem["toFlat"];
+                $floor = array_key_exists("floor", $rangeItem) ? $rangeItem["floor"] : 0;
+            }
+
+            $from = $this->parseImportAddressFlatRangeBound($from);
+            $to = $this->parseImportAddressFlatRangeBound($to);
+
+            if ($from === null || $to === null || $from > $to) {
+                return false;
+            }
+
+            if (!checkInt($floor)) {
+                $floor = 0;
+            }
+
+            $flatItems = [];
+            for ($flatNumber = $from; $flatNumber <= $to; $flatNumber++) {
+                $flatItems[] = [
+                    "flatNumber" => (string)$flatNumber,
+                    "floor" => (int)$floor,
+                ];
+            }
+
+            return $flatItems;
+        }
+
+        private function parseImportAddressFlatRangeBound($value) {
+            if (checkInt($value) && (int)$value > 0) {
+                return (int)$value;
+            }
+
+            if (checkStr($value)) {
+                $value = trim($value);
+                if (preg_match('/^[1-9][0-9]*$/', $value)) {
+                    return (int)$value;
+                }
+            }
+
+            return null;
+        }
+
         /**
          * full subscribers sync for flats contract/autoBlock/customFields
          *
@@ -1070,10 +1191,10 @@ namespace backends\billing {
          * each item:
          * - isActive (required, bool/int, if true -> autoBlock = 0, else autoBlock = 1)
          * - subscriberID (optional, numeric, used for contract lookup and flat.contract update)
-         * - buildingUUID + flatNumber/flat (optional pair, used for direct flat lookup)
+         * - buildingUUID + flatNumber (optional pair, used for direct flat lookup)
          *   at least one lookup option is required:
          *   - subscriberID
-         *   - both buildingUUID and flatNumber/flat
+         *   - both buildingUUID and flatNumber
          * - agreement (optional, string, stored to custom field agreement only if provided)
          * - addressText (optional, string, stored to custom field addressText only if provided)
          * - login (optional, string, stored to flat.login)
@@ -1157,7 +1278,7 @@ namespace backends\billing {
                         if ($fallbackFlatId !== null) {
                             $autoBlock = $subscriber["isActive"] ? 0 : 1;
 
-                            error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flat " . json_encode([
+                            error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flatNumber " . json_encode([
                                 "index" => $subscriber["index"],
                                 "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
                                 "resolvedFlatId" => $fallbackFlatId,
@@ -1206,7 +1327,7 @@ namespace backends\billing {
                         $incomingSubscriberId = trim((string)$subscriber["contract"]);
 
                         if ($rbtSubscriberId !== "" && $rbtSubscriberId !== $incomingSubscriberId) {
-                            error_log("[billing/syncAutoBlockByContracts] warning: subscriberID mismatch for flat resolved by houseUUID+flat " . json_encode([
+                            error_log("[billing/syncAutoBlockByContracts] warning: subscriberID mismatch for flat resolved by houseUUID+flatNumber " . json_encode([
                                 "index" => $subscriber["index"],
                                 "flatId" => (int)$flatId,
                                 "houseUUID" => $subscriber["buildingUUID"],
@@ -1296,7 +1417,7 @@ namespace backends\billing {
                 $this->appendSyncInvalidError($result, $index, "invalidParams", [
                     "subscriberID" => @$subscriber["subscriberID"],
                     "buildingUUID" => @$subscriber["buildingUUID"],
-                    "flatNumber" => array_key_exists("flatNumber", $subscriber) ? $subscriber["flatNumber"] : @$subscriber["flat"],
+                    "flatNumber" => @$subscriber["flatNumber"],
                 ]);
                 return false;
             }
@@ -1375,8 +1496,8 @@ namespace backends\billing {
             $pairKey = null;
 
             $hasBuildingUUIDField = array_key_exists("buildingUUID", $subscriber);
-            $hasFlatField = array_key_exists("flatNumber", $subscriber) || array_key_exists("flat", $subscriber);
-            $flatValue = array_key_exists("flatNumber", $subscriber) ? $subscriber["flatNumber"] : @$subscriber["flat"];
+            $hasFlatField = array_key_exists("flatNumber", $subscriber);
+            $flatValue = @$subscriber["flatNumber"];
 
             if ($hasBuildingUUIDField || $hasFlatField) {
                 if ($hasBuildingUUIDField && $hasFlatField) {

@@ -12,10 +12,9 @@
      *
      * @apiParam {Object[]} subscribers list of subscribers for auto-block synchronization
         * @apiParam {Number|Boolean} subscribers.isActive contract state (`1|true` => autoBlock=0, `0|false` => autoBlock=1)
-        * @apiParam {Number} [subscribers.subscriberID] subscriber ID (contract). Required if `buildingUUID+flatNumber/flat` pair is not provided
-        * @apiParam {String} [subscribers.buildingUUID] building UUID. Must be provided together with `flatNumber` or `flat` if `subscriberID` is omitted
+        * @apiParam {Number} [subscribers.subscriberID] subscriber ID (contract). Required if `buildingUUID+flatNumber` pair is not provided
+        * @apiParam {String} [subscribers.buildingUUID] building UUID. Must be provided together with `flatNumber` if `subscriberID` is omitted
         * @apiParam {String} [subscribers.flatNumber] flat number. Pair field for `buildingUUID`
-        * @apiParam {String} [subscribers.flat] alias for `flatNumber`
         * @apiParam {String} [subscribers.agreement] agreement number (optional custom field update)
         * @apiParam {String} [subscribers.addressText] address text (optional custom field update)
         * @apiParam {String} [subscribers.login] subscriber login to store in flat
@@ -102,9 +101,6 @@
 
                         if (array_key_exists("flatNumber", $subscriber)) {
                             $item["flatNumber"] = $subscriber["flatNumber"];
-                        } else
-                        if (array_key_exists("flat", $subscriber)) {
-                            $item["flatNumber"] = $subscriber["flat"];
                         }
 
                         $_subscribers[] = $item;
