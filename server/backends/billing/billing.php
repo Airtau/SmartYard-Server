@@ -1755,29 +1755,53 @@ namespace backends\billing {
 
             if ($subscriber["hasAgreement"]) {
                 $definitions["agreement"] = [
-                    "fieldDisplay" => "billing.customFields.agreement.fieldDisplay",
-                    "fieldDescription" => "billing.customFields.agreement.fieldDescription",
+                    "fieldDisplay" => "addresses.customFields.billing.agreement.fieldDisplay",
+                    "fieldDescription" => "addresses.customFields.billing.agreement.fieldDescription",
+                    "tab" => "addresses.customFields.billing.tab",
                     "weight" => 1000,
                 ];
             }
 
             if ($subscriber["hasAddressText"]) {
                 $definitions["addressText"] = [
-                    "fieldDisplay" => "billing.customFields.addressText.fieldDisplay",
-                    "fieldDescription" => "billing.customFields.addressText.fieldDescription",
+                    "fieldDisplay" => "addresses.customFields.billing.addressText.fieldDisplay",
+                    "fieldDescription" => "addresses.customFields.billing.addressText.fieldDescription",
+                    "tab" => "addresses.customFields.billing.tab",
                     "weight" => 1010,
                 ];
             }
 
             foreach ($definitions as $field => $definition) {
                 $existing = $this->db->get(
-                    "select custom_field_id, apply_to from custom_fields where field = :field",
+                    "select
+                        custom_field_id,
+                        apply_to,
+                        catalog,
+                        type,
+                        field_display,
+                        field_description,
+                        editor,
+                        add,
+                        modify,
+                        tab,
+                        weight
+                     from custom_fields
+                     where field = :field",
                     [
                         "field" => $field,
                     ],
                     [
                         "custom_field_id" => "customFieldId",
                         "apply_to" => "applyTo",
+                        "catalog" => "catalog",
+                        "type" => "type",
+                        "field_display" => "fieldDisplay",
+                        "field_description" => "fieldDescription",
+                        "editor" => "editor",
+                        "add" => "add",
+                        "modify" => "modify",
+                        "tab" => "tab",
+                        "weight" => "weight",
                     ]
                 );
 
@@ -1807,6 +1831,56 @@ namespace backends\billing {
                             "configuredApplyTo" => @$existing["applyTo"],
                         ];
                         return false;
+                    }
+
+                    if (
+                        @$existing["catalog"] === "billing" &&
+                        (
+                            @$existing["type"] !== "text" ||
+                            @$existing["fieldDisplay"] !== $definition["fieldDisplay"] ||
+                            @$existing["fieldDescription"] !== $definition["fieldDescription"] ||
+                            @$existing["editor"] !== "text" ||
+                            (int)@$existing["add"] !== 1 ||
+                            (int)@$existing["modify"] !== 1 ||
+                            @$existing["tab"] !== $definition["tab"] ||
+                            (int)@$existing["weight"] !== (int)$definition["weight"]
+                        )
+                    ) {
+                        if ($this->db->modify(
+                            "update custom_fields set
+                                catalog = :catalog,
+                                type = :type,
+                                field_display = :field_display,
+                                field_description = :field_description,
+                                editor = :editor,
+                                add = :add,
+                                modify = :modify,
+                                tab = :tab,
+                                weight = :weight
+                             where custom_field_id = :custom_field_id",
+                            [
+                                "catalog" => "billing",
+                                "type" => "text",
+                                "field_display" => $definition["fieldDisplay"],
+                                "field_description" => $definition["fieldDescription"],
+                                "editor" => "text",
+                                "add" => 1,
+                                "modify" => 1,
+                                "tab" => $definition["tab"],
+                                "weight" => $definition["weight"],
+                                "custom_field_id" => $existing["customFieldId"],
+                            ]
+                        ) === false) {
+                            $result["failed"]++;
+                            $result["errors"][] = [
+                                "index" => $subscriber["index"],
+                                "error" => "cantUpdateBillingCustomField",
+                                "flatId" => $flatId,
+                                "subscriberID" => $subscriber["subscriberID"],
+                                "field" => $field,
+                            ];
+                            return false;
+                        }
                     }
 
                     continue;
@@ -1875,7 +1949,7 @@ namespace backends\billing {
                         "magic_hint" => null,
                         "add" => 1,
                         "modify" => 1,
-                        "tab" => "Billing",
+                        "tab" => $definition["tab"],
                         "weight" => $definition["weight"],
                     ]
                 ) === false) {

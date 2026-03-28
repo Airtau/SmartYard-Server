@@ -52,6 +52,14 @@
         return localized ? localized : value;
     },
 
+    resolveFlatCustomFieldTab: function (customField) {
+        if (customField && customField.tab) {
+            return modules.addresses.houses.localizeFlatCustomFieldText(customField.tab);
+        }
+
+        return i18n("customFields");
+    },
+
     isFlatCustomFieldMultiple: function (customField) {
         return customField && customField.type === "select" && modules.addresses.houses.flatCustomFieldFormat(customField).indexOf("multiple") >= 0;
     },
@@ -193,6 +201,7 @@
         let fieldId = "_cf_" + customField.field;
         let title = modules.addresses.houses.localizeFlatCustomFieldText(customField.fieldDisplay ? customField.fieldDisplay : customField.field);
         let hint = customField.fieldDescription ? modules.addresses.houses.localizeFlatCustomFieldText(customField.fieldDescription) : false;
+        let tab = modules.addresses.houses.resolveFlatCustomFieldTab(customField);
         let value = modules.addresses.houses.parseFlatCustomFieldValue(customField, customFields);
         let field = false;
 
@@ -205,7 +214,7 @@
                 id: fieldId,
                 type: "button",
                 title: title,
-                tab: i18n("customFields"),
+                tab: tab,
                 button: {
                     hint: customField.magicHint ? modules.addresses.houses.localizeFlatCustomFieldText(customField.magicHint) : title,
                     class: customField.magicClass ? customField.magicClass : "btn-secondary",
@@ -220,7 +229,7 @@
                 type: "select2",
                 title: title,
                 placeholder: title,
-                tab: i18n("customFields"),
+                tab: tab,
                 hint: hint,
                 options: modules.addresses.houses.buildFlatCustomFieldOptions(customField, value),
                 multiple: modules.addresses.houses.isFlatCustomFieldMultiple(customField),
@@ -268,7 +277,7 @@
                 type: "select",
                 title: title,
                 placeholder: title,
-                tab: i18n("customFields"),
+                tab: tab,
                 hint: hint,
                 options: options,
                 value: (value === null || typeof value === "undefined") ? "" : `${value}`,
@@ -283,7 +292,7 @@
             type: "text",
             title: title,
             placeholder: title,
-            tab: i18n("customFields"),
+            tab: tab,
             hint: hint,
             value: value,
             validate: v => {
