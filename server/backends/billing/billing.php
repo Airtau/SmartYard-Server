@@ -1518,14 +1518,6 @@ namespace backends\billing {
                         return false;
                     }
 
-                    if (!array_key_exists("type", $phoneItem)) {
-                        $this->appendSyncInvalidError($result, $index, "phoneTypeRequired", [
-                            "phoneIndex" => $phoneIndex,
-                            "phone" => @$phoneItem["phone"],
-                        ]);
-                        return false;
-                    }
-
                     $phone = $this->normalizeSyncSubscriberPhoneValue($phoneItem["phone"]);
                     if ($phone === null) {
                         $this->appendSyncInvalidError($result, $index, "invalidPhone", [
@@ -1535,7 +1527,7 @@ namespace backends\billing {
                         return false;
                     }
 
-                    $type = $phoneItem["type"];
+                    $type = array_key_exists("type", $phoneItem) ? $phoneItem["type"] : "regular";
                     if (!is_string($type) || !in_array($type, [ "owner", "regular" ], true)) {
                         $this->appendSyncInvalidError($result, $index, "invalidPhoneType", [
                             "phoneIndex" => $phoneIndex,

@@ -21,7 +21,7 @@
         * @apiParam {String} [subscribers.password] subscriber password to store in flat
         * @apiParam {Object[]} [subscribers.phones] phone numbers to import into RBT for this flat
         * @apiParam {String} subscribers.phones.phone mobile phone number
-        * @apiParam {String="owner","regular"} subscribers.phones.type desired role for this flat when the subscriber is added to this apartment; existing links in this flat are left unchanged
+        * @apiParam {String="owner","regular"} [subscribers.phones.type=regular] desired role for this flat when the subscriber is added to this apartment; existing links in this flat are left unchanged
      * @apiSuccess {Object} subscriptions synchronization result
      * @apiSuccess {Number} subscriptions.processed total processed subscriber items
      * @apiSuccess {Number} subscriptions.updated successfully updated flats
