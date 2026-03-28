@@ -133,7 +133,7 @@
                     return false;
                 }
 
-                return $this->db->get("select * from custom_fields where apply_to = :apply_to order by weight", [
+                $fields = $this->db->get("select * from custom_fields where apply_to = :apply_to order by weight", [
                     "apply_to" => $applyTo,
                 ], [
                     "custom_field_id" => "customFieldId",
@@ -158,6 +158,44 @@
                     "modify" => "modify",
                     "tab" => "tab",
                 ]);
+
+                if (!is_array($fields)) {
+                    return [];
+                }
+
+                $customFieldIds = [];
+
+                foreach ($fields as $field) {
+                    $customFieldId = @$field["customFieldId"];
+
+                    if (checkInt($customFieldId) && $customFieldId > 0) {
+                        $customFieldIds[$customFieldId] = $customFieldId;
+                    }
+                }
+
+                $optionsByCustomFieldId = [];
+
+                if (count($customFieldIds)) {
+                    $options = $this->db->get("select * from custom_fields_options where custom_field_id in (" . implode(", ", $customFieldIds) . ") order by custom_field_id, display_order, option", false, [
+                        "custom_field_id" => "customFieldId",
+                        "option" => "option",
+                        "display_order" => "displayOrder",
+                        "option_display" => "optionDisplay",
+                    ]);
+
+                    if (is_array($options)) {
+                        foreach ($options as $option) {
+                            $optionsByCustomFieldId[@$option["customFieldId"]][] = $option;
+                        }
+                    }
+                }
+
+                foreach ($fields as &$field) {
+                    $field["options"] = @$optionsByCustomFieldId[@$field["customFieldId"]] ?: [];
+                }
+                unset($field);
+
+                return $fields;
             }
 
             /**
