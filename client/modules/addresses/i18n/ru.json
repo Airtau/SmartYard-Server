@@ -274,7 +274,7 @@
     "deleteSubscriberFromFlat": "Удалить абонента из квартиры",
     "completeDeleteSubscriber": "Удалить абонента из системы",
     "confirmCompleteDeleteSubscriber": "Удалить абонента \"#%s\" из системы?",
-    "contract": "Договор",
+    "contract": "UID ЛС",
     "login": "Логин",
     "password": "Пароль",
     "video": "Видео",

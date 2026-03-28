@@ -273,7 +273,7 @@
     "deleteSubscriberFromFlat": "Delete subscriber from flat",
     "completeDeleteSubscriber": "Completely delete subscriber",
     "confirmCompleteDeleteSubscriber": "Delete subscriber \"#%s\" from the system?",
-    "contract": "Contract",
+    "contract": "Contract UID",
     "login": "Login",
     "password": "Password",
     "video": "Video",
