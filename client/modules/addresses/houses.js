@@ -42,6 +42,16 @@
         return customField && customField.format ? customField.format : "";
     },
 
+    localizeFlatCustomFieldText: function (value) {
+        if (!value) {
+            return value;
+        }
+
+        let localized = i18n(value);
+
+        return localized ? localized : value;
+    },
+
     isFlatCustomFieldMultiple: function (customField) {
         return customField && customField.type === "select" && modules.addresses.houses.flatCustomFieldFormat(customField).indexOf("multiple") >= 0;
     },
@@ -181,7 +191,8 @@
 
     makeFlatCustomFieldFormField: function (customField, customFields) {
         let fieldId = "_cf_" + customField.field;
-        let title = customField.fieldDisplay ? customField.fieldDisplay : customField.field;
+        let title = modules.addresses.houses.localizeFlatCustomFieldText(customField.fieldDisplay ? customField.fieldDisplay : customField.field);
+        let hint = customField.fieldDescription ? modules.addresses.houses.localizeFlatCustomFieldText(customField.fieldDescription) : false;
         let value = modules.addresses.houses.parseFlatCustomFieldValue(customField, customFields);
         let field = false;
 
@@ -196,7 +207,7 @@
                 title: title,
                 tab: i18n("customFields"),
                 button: {
-                    hint: customField.magicHint ? customField.magicHint : title,
+                    hint: customField.magicHint ? modules.addresses.houses.localizeFlatCustomFieldText(customField.magicHint) : title,
                     class: customField.magicClass ? customField.magicClass : "btn-secondary",
                     click: modules.custom[customField.magicFunction],
                 },
@@ -210,7 +221,7 @@
                 title: title,
                 placeholder: title,
                 tab: i18n("customFields"),
-                hint: customField.fieldDescription ? customField.fieldDescription : false,
+                hint: hint,
                 options: modules.addresses.houses.buildFlatCustomFieldOptions(customField, value),
                 multiple: modules.addresses.houses.isFlatCustomFieldMultiple(customField),
                 tags: modules.addresses.houses.flatCustomFieldFormat(customField).indexOf("editable") >= 0,
@@ -258,7 +269,7 @@
                 title: title,
                 placeholder: title,
                 tab: i18n("customFields"),
-                hint: customField.fieldDescription ? customField.fieldDescription : false,
+                hint: hint,
                 options: options,
                 value: (value === null || typeof value === "undefined") ? "" : `${value}`,
                 validate: v => {
@@ -273,7 +284,7 @@
             title: title,
             placeholder: title,
             tab: i18n("customFields"),
-            hint: customField.fieldDescription ? customField.fieldDescription : false,
+            hint: hint,
             value: value,
             validate: v => {
                 return modules.addresses.houses.validateFlatCustomField(customField, v);
@@ -302,7 +313,7 @@
             };
 
             if (customField.magicHint) {
-                field.button.hint = customField.magicHint;
+                field.button.hint = modules.addresses.houses.localizeFlatCustomFieldText(customField.magicHint);
             }
         }
 

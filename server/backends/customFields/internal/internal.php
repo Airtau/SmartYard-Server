@@ -43,6 +43,10 @@
              */
 
             public function modifyValues($applyTo, $id, $set) {
+                if (!is_array($set)) {
+                    return false;
+                }
+
                 $new = [];
 
                 foreach ($set as $f => $v) {
@@ -54,22 +58,30 @@
 
                 $old = $this->getValues($applyTo, $id);
 
+                if (!is_array($old)) {
+                    return false;
+                }
+
                 foreach ($old as $of => $ov) {
                     foreach ($set as $nf => $nv) {
                         if ($of == $nf && $ov != $nv) {
                             if ($nv) {
-                                $this->db->modify("update custom_fields_values set value = :value where apply_to = :apply_to and id = :id and field = :field", [
+                                if ($this->db->modify("update custom_fields_values set value = :value where apply_to = :apply_to and id = :id and field = :field", [
                                     "apply_to" => $applyTo,
                                     "id" => $id,
                                     "field" => $nf,
                                     "value" => $nv,
-                                ]);
+                                ]) === false) {
+                                    return false;
+                                }
                             } else {
-                                $this->db->modify("delete from custom_fields_values where apply_to = :apply_to and id = :id and field = :field", [
+                                if ($this->db->modify("delete from custom_fields_values where apply_to = :apply_to and id = :id and field = :field", [
                                     "apply_to" => $applyTo,
                                     "id" => $id,
                                     "field" => $nf,
-                                ]);
+                                ]) === false) {
+                                    return false;
+                                }
                             }
                         }
                     }
@@ -77,22 +89,26 @@
 
                 foreach ($old as $f => $v) {
                     if (!@$new[$f]) {
-                        $this->db->modify("delete from custom_fields_values where apply_to = :apply_to and id = :id and field = :field", [
+                        if ($this->db->modify("delete from custom_fields_values where apply_to = :apply_to and id = :id and field = :field", [
                             "apply_to" => $applyTo,
                             "id" => $id,
                             "field" => $f,
-                        ]);
+                        ]) === false) {
+                            return false;
+                        }
                     }
                 }
 
                 foreach ($new as $f => $v) {
                     if (!@$old[$f] && $v) {
-                        $this->db->modify("insert into custom_fields_values (apply_to, id, field, value) values (:apply_to, :id, :field, :value)", [
+                        if ($this->db->modify("insert into custom_fields_values (apply_to, id, field, value) values (:apply_to, :id, :field, :value)", [
                             "apply_to" => $applyTo,
                             "id" => $id,
                             "field" => $f,
                             "value" => $v,
-                        ]);
+                        ]) === false) {
+                            return false;
+                        }
                     }
                 }
 

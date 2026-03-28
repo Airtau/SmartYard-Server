@@ -124,6 +124,12 @@
     "typeInt": "только целое число",
     "typeFloat": "любое число",
     "typeString": "одна строка",
+    "billing": {
+        "customFields.agreement.fieldDisplay": "Договор",
+        "customFields.agreement.fieldDescription": "Номер договора из биллинга",
+        "customFields.addressText.fieldDisplay": "Адрес из биллинга",
+        "customFields.addressText.fieldDescription": "Текст адреса из биллинга"
+    },
     "errors": {
         "error": "Ошибка",
         "404caption": "Ой! Страница не найдена",

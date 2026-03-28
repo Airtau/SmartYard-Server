@@ -1750,6 +1750,150 @@ namespace backends\billing {
             return true;
         }
 
+        private function ensureSyncBillingFlatCustomFieldDefinitions($flatId, $subscriber, &$result) {
+            $definitions = [];
+
+            if ($subscriber["hasAgreement"]) {
+                $definitions["agreement"] = [
+                    "fieldDisplay" => "billing.customFields.agreement.fieldDisplay",
+                    "fieldDescription" => "billing.customFields.agreement.fieldDescription",
+                    "weight" => 1000,
+                ];
+            }
+
+            if ($subscriber["hasAddressText"]) {
+                $definitions["addressText"] = [
+                    "fieldDisplay" => "billing.customFields.addressText.fieldDisplay",
+                    "fieldDescription" => "billing.customFields.addressText.fieldDescription",
+                    "weight" => 1010,
+                ];
+            }
+
+            foreach ($definitions as $field => $definition) {
+                $existing = $this->db->get(
+                    "select custom_field_id, apply_to from custom_fields where field = :field",
+                    [
+                        "field" => $field,
+                    ],
+                    [
+                        "custom_field_id" => "customFieldId",
+                        "apply_to" => "applyTo",
+                    ]
+                );
+
+                if ($existing === false) {
+                    $result["failed"]++;
+                    $result["errors"][] = [
+                        "index" => $subscriber["index"],
+                        "error" => "cantLoadCustomFieldConfiguration",
+                        "flatId" => $flatId,
+                        "subscriberID" => $subscriber["subscriberID"],
+                        "field" => $field,
+                    ];
+                    return false;
+                }
+
+                if (is_array($existing) && count($existing)) {
+                    $existing = $existing[0];
+
+                    if (@$existing["applyTo"] !== "flat") {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $subscriber["index"],
+                            "error" => "billingCustomFieldAlreadyUsedByAnotherEntity",
+                            "flatId" => $flatId,
+                            "subscriberID" => $subscriber["subscriberID"],
+                            "field" => $field,
+                            "configuredApplyTo" => @$existing["applyTo"],
+                        ];
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                if ($this->db->modify(
+                    "insert into custom_fields (
+                        apply_to,
+                        catalog,
+                        type,
+                        field,
+                        field_display,
+                        field_description,
+                        regex,
+                        link,
+                        format,
+                        editor,
+                        indx,
+                        search,
+                        required,
+                        magic_class,
+                        magic_function,
+                        magic_hint,
+                        add,
+                        modify,
+                        tab,
+                        weight
+                    ) values (
+                        :apply_to,
+                        :catalog,
+                        :type,
+                        :field,
+                        :field_display,
+                        :field_description,
+                        :regex,
+                        :link,
+                        :format,
+                        :editor,
+                        :indx,
+                        :search,
+                        :required,
+                        :magic_class,
+                        :magic_function,
+                        :magic_hint,
+                        :add,
+                        :modify,
+                        :tab,
+                        :weight
+                    )",
+                    [
+                        "apply_to" => "flat",
+                        "catalog" => "billing",
+                        "type" => "text",
+                        "field" => $field,
+                        "field_display" => $definition["fieldDisplay"],
+                        "field_description" => $definition["fieldDescription"],
+                        "regex" => null,
+                        "link" => null,
+                        "format" => null,
+                        "editor" => "text",
+                        "indx" => 0,
+                        "search" => 0,
+                        "required" => 0,
+                        "magic_class" => null,
+                        "magic_function" => null,
+                        "magic_hint" => null,
+                        "add" => 1,
+                        "modify" => 1,
+                        "tab" => "Billing",
+                        "weight" => $definition["weight"],
+                    ]
+                ) === false) {
+                    $result["failed"]++;
+                    $result["errors"][] = [
+                        "index" => $subscriber["index"],
+                        "error" => "cantCreateBillingCustomField",
+                        "flatId" => $flatId,
+                        "subscriberID" => $subscriber["subscriberID"],
+                        "field" => $field,
+                    ];
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private function applySyncSubscriberToFlat($households, &$customFields, $flatId, $subscriber, &$result, $options = []) {
             $autoBlock = $subscriber["isActive"] ? 0 : 1;
             $flatPatch = [
@@ -1814,6 +1958,10 @@ namespace backends\billing {
                         "flatId" => $flatId,
                         "subscriberID" => $subscriber["subscriberID"],
                     ];
+                    return false;
+                }
+
+                if (!$this->ensureSyncBillingFlatCustomFieldDefinitions($flatId, $subscriber, $result)) {
                     return false;
                 }
 

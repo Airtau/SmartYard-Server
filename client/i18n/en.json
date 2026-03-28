@@ -123,6 +123,12 @@
     "typeInt": "only integer",
     "typeFloat": "any number",
     "typeString": "single string",
+    "billing": {
+        "customFields.agreement.fieldDisplay": "Agreement",
+        "customFields.agreement.fieldDescription": "Agreement number from billing",
+        "customFields.addressText.fieldDisplay": "Billing address",
+        "customFields.addressText.fieldDescription": "Address text from billing"
+    },
     "errors": {
         "error": "Error",
         "404caption": "Oh! Page not found",
