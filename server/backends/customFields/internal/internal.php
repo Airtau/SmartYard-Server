@@ -42,8 +42,12 @@
              * @inheritDoc
              */
 
-            public function modifyValues($applyTo, $id, $set) {
+            public function modifyValues($applyTo, $id, $set, $mode = "replace") {
                 if (!is_array($set)) {
+                    return false;
+                }
+
+                if ($mode !== "replace" && $mode !== "patch") {
                     return false;
                 }
 
@@ -63,7 +67,7 @@
                 }
 
                 foreach ($old as $of => $ov) {
-                    foreach ($set as $nf => $nv) {
+                    foreach ($new as $nf => $nv) {
                         if ($of == $nf && $ov != $nv) {
                             if ($nv) {
                                 if ($this->db->modify("update custom_fields_values set value = :value where apply_to = :apply_to and id = :id and field = :field", [
@@ -87,14 +91,16 @@
                     }
                 }
 
-                foreach ($old as $f => $v) {
-                    if (!@$new[$f]) {
-                        if ($this->db->modify("delete from custom_fields_values where apply_to = :apply_to and id = :id and field = :field", [
-                            "apply_to" => $applyTo,
-                            "id" => $id,
-                            "field" => $f,
-                        ]) === false) {
-                            return false;
+                if ($mode === "replace") {
+                    foreach ($old as $f => $v) {
+                        if (!@$new[$f]) {
+                            if ($this->db->modify("delete from custom_fields_values where apply_to = :apply_to and id = :id and field = :field", [
+                                "apply_to" => $applyTo,
+                                "id" => $id,
+                                "field" => $f,
+                            ]) === false) {
+                                return false;
+                            }
                         }
                     }
                 }

@@ -949,28 +949,20 @@ namespace backends\billing {
                 }
 
                 if ($services !== null) {
-                    $values = $customFields->getValues("house", $houseId);
-                    if (!is_array($values)) {
-                        $values = [];
-                    }
-
                     $servicesValue = implode(",", $services);
-                    $currentServicesValue = @$values["services"];
 
-                    if ($currentServicesValue !== $servicesValue) {
-                        $values["services"] = $servicesValue;
-
-                        if ($customFields->modifyValues("house", $houseId, $values) === false) {
-                            $result["failed"]++;
-                            $result["errors"][] = [
-                                "index" => $index,
-                                "error" => "cantModifyHouseServices",
-                                "houseId" => $houseId,
-                                "houseUuid" => $houseUuid,
-                            ];
-                        } else {
-                            $result["servicesUpdated"]++;
-                        }
+                    if ($customFields->modifyValues("house", $houseId, [
+                        "services" => $servicesValue,
+                    ], "patch") === false) {
+                        $result["failed"]++;
+                        $result["errors"][] = [
+                            "index" => $index,
+                            "error" => "cantModifyHouseServices",
+                            "houseId" => $houseId,
+                            "houseUuid" => $houseUuid,
+                        ];
+                    } else {
+                        $result["servicesUpdated"]++;
                     }
                 }
 
@@ -2039,11 +2031,7 @@ namespace backends\billing {
                     return false;
                 }
 
-                $values = $customFields->getValues("flat", $flatId);
-
-                if (!is_array($values)) {
-                    $values = [];
-                }
+                $values = [];
 
                 if ($subscriber["hasAgreement"]) {
                     $values["agreement"] = $subscriber["agreement"];
@@ -2053,7 +2041,7 @@ namespace backends\billing {
                     $values["addressText"] = $subscriber["addressText"];
                 }
 
-                if ($customFields->modifyValues("flat", $flatId, $values) === false) {
+                if ($customFields->modifyValues("flat", $flatId, $values, "patch") === false) {
                     $result["failed"]++;
                     $result["errors"][] = [
                         "index" => $subscriber["index"],
