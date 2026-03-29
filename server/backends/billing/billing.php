@@ -347,6 +347,7 @@ namespace backends\billing {
                 }
 
                 $regionIsoCode = @$item["regionIsoCode"];
+                $hasTimezone = array_key_exists("timezone", $item);
                 $regionWithType = @$item["regionWithType"];
                 $regionType = @$item["regionType"];
                 $regionTypeFull = @$item["regionTypeFull"];
@@ -423,7 +424,8 @@ namespace backends\billing {
                 $houseType = @$item["houseType"];
                 $houseTypeFull = @$item["houseTypeFull"];
                 $houseFull = @$item["houseFull"];
-                $companyId = @$item["companyId"];
+                $hasCompanyId = array_key_exists("companyId", $item);
+                $companyId = $hasCompanyId ? $item["companyId"] : 0;
 
                 if (!checkStr($houseType)) {
                     $houseType = "";
@@ -561,6 +563,22 @@ namespace backends\billing {
                             "regionId" => $regionId,
                         ];
                     }
+
+                    if ($hasTimezone) {
+                        $updatedRegionRow = $this->syncImportAddressExistingTimezone($addresses, "region", $regionRow, $timezone, $result, $index);
+                        if ($updatedRegionRow === false) {
+                            continue;
+                        }
+
+                        $regionRow = $updatedRegionRow;
+
+                        foreach ($cache["regions"] as $regionCacheIndex => $regionCacheRow) {
+                            if ((int)@$regionCacheRow["regionId"] === (int)$regionId) {
+                                $cache["regions"][$regionCacheIndex] = $regionRow;
+                                break;
+                            }
+                        }
+                    }
                 }
 
                 $areaId = 0;
@@ -635,6 +653,22 @@ namespace backends\billing {
                                 "actualUuid" => @$areaRow["areaUuid"],
                                 "areaId" => $areaId,
                             ];
+                        }
+
+                        if ($hasTimezone) {
+                            $updatedAreaRow = $this->syncImportAddressExistingTimezone($addresses, "area", $areaRow, $timezone, $result, $index);
+                            if ($updatedAreaRow === false) {
+                                continue;
+                            }
+
+                            $areaRow = $updatedAreaRow;
+
+                            foreach ($cache["areas"][$regionId] as $areaCacheIndex => $areaCacheRow) {
+                                if ((int)@$areaCacheRow["areaId"] === (int)$areaId) {
+                                    $cache["areas"][$regionId][$areaCacheIndex] = $areaRow;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -713,6 +747,22 @@ namespace backends\billing {
                                 "actualUuid" => @$cityRow["cityUuid"],
                                 "cityId" => $cityId,
                             ];
+                        }
+
+                        if ($hasTimezone) {
+                            $updatedCityRow = $this->syncImportAddressExistingTimezone($addresses, "city", $cityRow, $timezone, $result, $index);
+                            if ($updatedCityRow === false) {
+                                continue;
+                            }
+
+                            $cityRow = $updatedCityRow;
+
+                            foreach ($cache["cities"][$citiesKey] as $cityCacheIndex => $cityCacheRow) {
+                                if ((int)@$cityCacheRow["cityId"] === (int)$cityId) {
+                                    $cache["cities"][$citiesKey][$cityCacheIndex] = $cityRow;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -945,6 +995,50 @@ namespace backends\billing {
                             "actualUuid" => @$houseRow["houseUuid"],
                             "houseId" => $houseId,
                         ];
+                    }
+
+                    if ($hasCompanyId && (int)@$houseRow["companyId"] !== (int)$companyId) {
+                        if ($addresses->modifyHouse(
+                            $houseId,
+                            @$houseRow["settlementId"],
+                            @$houseRow["streetId"],
+                            @$houseRow["houseUuid"],
+                            @$houseRow["houseType"],
+                            @$houseRow["houseTypeFull"],
+                            @$houseRow["houseFull"],
+                            @$houseRow["house"],
+                            $companyId
+                        ) === false) {
+                            $result["failed"]++;
+                            $result["errors"][] = [
+                                "index" => $index,
+                                "error" => "cantModifyHouseCompanyId",
+                                "houseId" => $houseId,
+                                "houseUuid" => $houseUuid,
+                                "companyId" => $companyId,
+                            ];
+                            continue;
+                        }
+
+                        $houseRow = $addresses->getHouse($houseId);
+
+                        if (!is_array($houseRow)) {
+                            $result["failed"]++;
+                            $result["errors"][] = [
+                                "index" => $index,
+                                "error" => "cantGetHouseAfterCompanyIdUpdate",
+                                "houseId" => $houseId,
+                                "houseUuid" => $houseUuid,
+                            ];
+                            continue;
+                        }
+
+                        foreach ($cache["houses"][$housesKey] as $houseCacheIndex => $houseCacheRow) {
+                            if ((int)@$houseCacheRow["houseId"] === (int)$houseId) {
+                                $cache["houses"][$housesKey][$houseCacheIndex] = $houseRow;
+                                break;
+                            }
+                        }
                     }
                 }
 
@@ -1181,7 +1275,7 @@ namespace backends\billing {
          *
          * @param $subscribers array of subscribers
          * each item:
-         * - isActive (required, bool/int, if true -> autoBlock = 0, else autoBlock = 1)
+         * - isActive (optional, bool/int, if true -> autoBlock = 0, else autoBlock = 1)
          * - subscriberID (optional, numeric, used for contract lookup and flat.contract update)
          * - buildingUUID + flatNumber (optional pair, used for direct flat lookup)
          *   at least one lookup option is required:
@@ -1192,6 +1286,7 @@ namespace backends\billing {
          * - login (optional, string, stored to flat.login)
          * - password (optional, string, stored to flat.password)
          * - phones (optional, array of objects: phone + type=owner|regular, linked to flat in RBT)
+         * if isActive is omitted, phones must be provided and autoBlock is left unchanged
          * @param $defaultAction string
          * values:
          * - "skipMissing" (default): do not change subscribers not in list
@@ -1270,20 +1365,27 @@ namespace backends\billing {
 
                         if ($fallbackFlatId !== null) {
                             $resolvedByContractOnly = !$subscriber["hasPair"];
-                            $autoBlock = $subscriber["isActive"] ? 0 : 1;
-
                             if (!$resolvedByContractOnly) {
-                                error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flatNumber " . json_encode([
+                                $warningContext = [
                                     "index" => $subscriber["index"],
                                     "subscriber" => is_array(@$subscribers[$subscriber["index"]]) ? $subscribers[$subscriber["index"]] : $subscriber,
                                     "resolvedFlatId" => $fallbackFlatId,
-                                    "targetAutoBlock" => $autoBlock,
-                                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                                ];
+
+                                if ($subscriber["hasIsActive"]) {
+                                    $warningContext["targetAutoBlock"] = $subscriber["isActive"] ? 0 : 1;
+                                }
+
+                                error_log("[billing/syncAutoBlockByContracts] warning: fallback flat resolved by contract instead of houseUUID+flatNumber " . json_encode([
+                                    "index" => $warningContext["index"],
+                                    "subscriber" => $warningContext["subscriber"],
+                                    "resolvedFlatId" => $warningContext["resolvedFlatId"],
+                                ] + ($subscriber["hasIsActive"] ? [ "targetAutoBlock" => $warningContext["targetAutoBlock"] ] : []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                             }
 
                             if (!$this->applySyncSubscriberToFlat($households, $customFields, $fallbackFlatId, $subscriber, $result, [
                                 "cantModifyFlatError" => $resolvedByContractOnly ? "cantModifyFlat" : "cantModifyFlatFallbackByContract",
-                                "includeTargetAutoBlock" => !$resolvedByContractOnly,
+                                "includeTargetAutoBlock" => (!$resolvedByContractOnly && $subscriber["hasIsActive"]),
                                 "updateContract" => $resolvedByContractOnly && $subscriber["hasSubscriberID"],
                                 "updateCustomFields" => $resolvedByContractOnly,
                             ])) {
@@ -1403,19 +1505,24 @@ namespace backends\billing {
 
         private function normalizeSyncSubscriberItem($index, $subscriber, &$result, &$pairs, &$contracts, &$hasSubscribersWithoutContract) {
             // Helper: normalize one item and prepare pair/contract lookup structures.
-            if (!is_array($subscriber) || !array_key_exists("isActive", $subscriber)) {
+            if (!is_array($subscriber)) {
                 $this->appendSyncInvalidError($result, $index, "invalidItem");
                 return false;
             }
 
-            $isActive = $subscriber["isActive"];
-            if (!checkInt($isActive) || !in_array((int)$isActive, [ 0, 1 ], true)) {
-                $this->appendSyncInvalidError($result, $index, "invalidParams", [
-                    "subscriberID" => @$subscriber["subscriberID"],
-                    "buildingUUID" => @$subscriber["buildingUUID"],
-                    "flatNumber" => @$subscriber["flatNumber"],
-                ]);
-                return false;
+            $hasIsActive = array_key_exists("isActive", $subscriber);
+            $isActive = null;
+
+            if ($hasIsActive) {
+                $isActive = $subscriber["isActive"];
+                if (!checkInt($isActive) || !in_array((int)$isActive, [ 0, 1 ], true)) {
+                    $this->appendSyncInvalidError($result, $index, "invalidParams", [
+                        "subscriberID" => @$subscriber["subscriberID"],
+                        "buildingUUID" => @$subscriber["buildingUUID"],
+                        "flatNumber" => @$subscriber["flatNumber"],
+                    ]);
+                    return false;
+                }
             }
 
             $hasSubscriberID = false;
@@ -1548,7 +1655,7 @@ namespace backends\billing {
                 }
 
                 $phones = array_values($normalizedPhones);
-                $hasPhones = true;
+                $hasPhones = count($phones) > 0;
             }
 
             $hasPair = false;
@@ -1590,6 +1697,11 @@ namespace backends\billing {
                 }
             }
 
+            if (!$hasIsActive && !$hasPhones) {
+                $this->appendSyncInvalidError($result, $index, "phonesRequiredWithoutIsActive");
+                return false;
+            }
+
             if (!$hasSubscriberID && !$hasPair) {
                 $this->appendSyncInvalidError($result, $index, "noLookupParams");
                 return false;
@@ -1600,13 +1712,14 @@ namespace backends\billing {
             }
 
             return [
+                "hasIsActive" => $hasIsActive,
                 "index" => $index,
                 "subscriberID" => $subscriberID,
                 "hasSubscriberID" => $hasSubscriberID,
                 "contract" => $contract,
                 "agreement" => $agreement,
                 "hasAgreement" => $hasAgreement,
-                "isActive" => (int)$isActive,
+                "isActive" => $hasIsActive ? (int)$isActive : null,
                 "addressText" => $addressText,
                 "hasAddressText" => $hasAddressText,
                 "login" => $login,
@@ -1627,16 +1740,20 @@ namespace backends\billing {
                 return null;
             }
 
-            $phone = preg_replace('/\D+/', '', trim((string)$phone));
+            $rawPhone = trim((string)$phone);
+            $phone = preg_replace('/\D+/', '', $rawPhone);
             if ($phone === null || $phone === "") {
                 return null;
             }
 
-            if (strlen($phone) == 10) {
-                $phone = "7" . $phone;
-            } else
-            if (strlen($phone) == 11 && $phone[0] == "8") {
-                $phone = "7" . substr($phone, 1);
+            // Billing must send mobile phones with country code. Local Russian formats like
+            // "912..." or "8912..." are rejected instead of being auto-converted.
+            if (preg_match('/^9[0-9]{9}$/', $phone)) {
+                return null;
+            }
+
+            if (preg_match('/^89[0-9]{9}$/', $phone) && strpos($rawPhone, '+') !== 0) {
+                return null;
             }
 
             if (!preg_match('/^[0-9]{10,15}$/', $phone)) {
@@ -1961,10 +2078,13 @@ namespace backends\billing {
         }
 
         private function applySyncSubscriberToFlat($households, &$customFields, $flatId, $subscriber, &$result, $options = []) {
-            $autoBlock = $subscriber["isActive"] ? 0 : 1;
-            $flatPatch = [
-                "autoBlock" => $autoBlock,
-            ];
+            $autoBlock = null;
+            $flatPatch = [];
+
+            if ($subscriber["hasIsActive"]) {
+                $autoBlock = $subscriber["isActive"] ? 0 : 1;
+                $flatPatch["autoBlock"] = $autoBlock;
+            }
 
             if (@$options["updateContract"] && $subscriber["hasSubscriberID"]) {
                 $flatPatch["contract"] = $subscriber["contract"];
@@ -1993,21 +2113,23 @@ namespace backends\billing {
                 }
             }
 
-            if ($households->modifyFlat($flatId, $flatPatch) === false) {
-                $result["failed"]++;
-                $error = [
-                    "index" => $subscriber["index"],
-                    "error" => @$options["cantModifyFlatError"] ?: "cantModifyFlat",
-                    "flatId" => $flatId,
-                    "subscriberID" => $subscriber["subscriberID"],
-                ];
+            if (count($flatPatch)) {
+                if ($households->modifyFlat($flatId, $flatPatch) === false) {
+                    $result["failed"]++;
+                    $error = [
+                        "index" => $subscriber["index"],
+                        "error" => @$options["cantModifyFlatError"] ?: "cantModifyFlat",
+                        "flatId" => $flatId,
+                        "subscriberID" => $subscriber["subscriberID"],
+                    ];
 
-                if (@$options["includeTargetAutoBlock"]) {
-                    $error["targetAutoBlock"] = $autoBlock;
+                    if (@$options["includeTargetAutoBlock"] && $autoBlock !== null) {
+                        $error["targetAutoBlock"] = $autoBlock;
+                    }
+
+                    $result["errors"][] = $error;
+                    return false;
                 }
-
-                $result["errors"][] = $error;
-                return false;
             }
 
             if (@$options["updateCustomFields"] && ($subscriber["hasAgreement"] || $subscriber["hasAddressText"])) {
@@ -2179,6 +2301,125 @@ namespace backends\billing {
             }
 
             return false;
+        }
+
+        private function syncImportAddressExistingTimezone($addresses, $entity, $row, $timezone, &$result, $index) {
+            $idField = "";
+            $getMethod = "";
+            $modifyResult = false;
+
+            switch ($entity) {
+                case "region":
+                    $idField = "regionId";
+                    $getMethod = "getRegion";
+                    break;
+
+                case "area":
+                    $idField = "areaId";
+                    $getMethod = "getArea";
+                    break;
+
+                case "city":
+                    $idField = "cityId";
+                    $getMethod = "getCity";
+                    break;
+
+                default:
+                    $result["failed"]++;
+                    $result["errors"][] = [
+                        "index" => $index,
+                        "error" => "unknownTimezoneEntity",
+                        "entity" => $entity,
+                    ];
+                    return false;
+            }
+
+            $currentTimezone = @$row["timezone"];
+            if (!checkStr($currentTimezone) || $currentTimezone === "") {
+                $currentTimezone = "-";
+            }
+
+            if ($currentTimezone === $timezone) {
+                return $row;
+            }
+
+            $entityId = @$row[$idField];
+            if (!checkInt($entityId) || !$entityId) {
+                $result["failed"]++;
+                $result["errors"][] = [
+                    "index" => $index,
+                    "error" => "invalidTimezoneEntityId",
+                    "entity" => $entity,
+                ];
+                return false;
+            }
+
+            switch ($entity) {
+                case "region":
+                    $modifyResult = $addresses->modifyRegion(
+                        @$row["regionId"],
+                        @$row["regionUuid"],
+                        @$row["regionIsoCode"],
+                        @$row["regionWithType"],
+                        @$row["regionType"],
+                        @$row["regionTypeFull"],
+                        @$row["region"],
+                        $timezone
+                    );
+                    break;
+
+                case "area":
+                    $modifyResult = $addresses->modifyArea(
+                        @$row["areaId"],
+                        @$row["regionId"],
+                        @$row["areaUuid"],
+                        @$row["areaWithType"],
+                        @$row["areaType"],
+                        @$row["areaTypeFull"],
+                        @$row["area"],
+                        $timezone
+                    );
+                    break;
+
+                case "city":
+                    $modifyResult = $addresses->modifyCity(
+                        @$row["cityId"],
+                        @$row["regionId"],
+                        @$row["areaId"],
+                        @$row["cityUuid"],
+                        @$row["cityWithType"],
+                        @$row["cityType"],
+                        @$row["cityTypeFull"],
+                        @$row["city"],
+                        $timezone
+                    );
+                    break;
+            }
+
+            if ($modifyResult === false) {
+                $result["failed"]++;
+                $result["errors"][] = [
+                    "index" => $index,
+                    "error" => "cantModifyEntityTimezone",
+                    "entity" => $entity,
+                    "timezone" => $timezone,
+                ];
+                return false;
+            }
+
+            $updatedRow = $addresses->$getMethod($entityId);
+            if (!is_array($updatedRow)) {
+                $result["failed"]++;
+                $result["errors"][] = [
+                    "index" => $index,
+                    "error" => "cantGetEntityAfterTimezoneUpdate",
+                    "entity" => $entity,
+                    "timezone" => $timezone,
+                ];
+                return false;
+            }
+
+            return $updatedRow;
         }
 
         private function syncAutoBlockRows($households, $rows, $targetAutoBlock, $scope, &$result) {

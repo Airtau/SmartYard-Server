@@ -11,12 +11,12 @@
      * @apiHeader {String} Authorization authentication token
      *
      * @apiParam {Object[]} subscribers list of subscribers for auto-block synchronization
-        * @apiParam {Number|Boolean} subscribers.isActive contract state (`1|true` => autoBlock=0, `0|false` => autoBlock=1)
+        * @apiParam {Number|Boolean} [subscribers.isActive] contract state (`1|true` => autoBlock=0, `0|false` => autoBlock=1). Optional for phone-only sync; if omitted, `autoBlock` is left unchanged
         * @apiParam {Number} [subscribers.subscriberID] subscriber ID (contract). Required if `buildingUUID+flatNumber` pair is not provided
         * @apiParam {String} [subscribers.buildingUUID] building UUID. Must be provided together with `flatNumber` if `subscriberID` is omitted
         * @apiParam {String} [subscribers.flatNumber] flat number. Pair field for `buildingUUID`
         * @apiParam {String} [subscribers.agreement] agreement number (optional custom field update, persisted when the flat is resolved by `buildingUUID+flatNumber` or by unique `subscriberID`)
-        * @apiParam {String} [subscribers.addressText] address text (optional custom field update, persisted when the flat is resolved by `buildingUUID+flatNumber` or by unique `subscriberID`)
+        * @apiParam {String} [subscribers.addressText] address text (optional reference/debug custom field update, persisted when the flat is resolved by `buildingUUID+flatNumber` or by unique `subscriberID`; does not update address classifiers, use `/frontend/billing/addresses` for that)
         * @apiParam {String} [subscribers.login] subscriber login to store in flat
         * @apiParam {String} [subscribers.password] subscriber password to store in flat
         * @apiParam {Object[]} [subscribers.phones] phone numbers to import into RBT for this flat
@@ -70,13 +70,11 @@
                             return "subscriber item must be object at index " . $index;
                         }
 
-                        if (!array_key_exists("isActive", $subscriber)) {
-                            return "isActive is required for subscriber at index " . $index;
-                        }
+                        $item = [];
 
-                        $item = [
-                            "isActive" => $subscriber["isActive"],
-                        ];
+                        if (array_key_exists("isActive", $subscriber)) {
+                            $item["isActive"] = $subscriber["isActive"];
+                        }
 
                         if (array_key_exists("subscriberID", $subscriber)) {
                             $item["subscriberID"] = $subscriber["subscriberID"];
