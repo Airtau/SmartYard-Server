@@ -2962,6 +2962,7 @@
                                 if (modules.addresses.houses.customFieldsConfiguration && modules.addresses.houses.customFieldsConfiguration.flat) {
                                     PUT("houses", "customFields", "flat", {
                                         id: flatId,
+                                        mode: "patch",
                                         customFields: cf,
                                     }).
                                     fail(FAIL);
